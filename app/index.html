@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Find a Cig</title>
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>🚬 Find a Cig</h1>
+    <div class="ball-zone">
+      <span id="ball-status" class="ball-status" data-state="off">Ball non connectée</span>
+      <button id="btn-ball" class="btn btn-ghost">Connecter la ball</button>
+    </div>
+  </header>
+
+  <!-- Filtre de période — scope Carte + Stats (masqué sur l'onglet Session) -->
+  <div id="filter-row" class="filter-row" hidden>
+    <button class="chip" data-range="today">Aujourd'hui</button>
+    <button class="chip" data-range="7">7 jours</button>
+    <button class="chip" data-range="30">30 jours</button>
+    <button class="chip selected" data-range="all">Tout</button>
+  </div>
+
+  <main>
+    <!-- ═══ Onglet Session ═══ -->
+    <section id="panel-session" class="panel active">
+      <div class="session-box">
+        <div class="hero-count">
+          <span id="session-count" class="hero-value">0</span>
+          <span class="hero-label">mégots cette session</span>
+        </div>
+
+        <div id="geo-status" class="geo-status" data-state="off">GPS inactif</div>
+
+        <button id="btn-session" class="btn btn-primary btn-big">Démarrer une session</button>
+
+        <button id="btn-mark" class="btn btn-mark" disabled>
+          <span class="mark-icon">🚬</span>
+          <span>+1 mégot</span>
+          <span class="mark-hint">ou bouton du dessus de la ball</span>
+        </button>
+
+        <button id="btn-undo" class="btn btn-ghost" disabled>↩︎ Annuler le dernier</button>
+
+        <p id="session-log" class="session-log" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <!-- ═══ Onglet Carte ═══ -->
+    <section id="panel-map" class="panel">
+      <div id="map"></div>
+    </section>
+
+    <!-- ═══ Onglet Stats ═══ -->
+    <section id="panel-stats" class="panel">
+      <div class="tiles">
+        <div class="tile"><span class="tile-label">Total mégots</span><span id="tile-total" class="tile-value">0</span></div>
+        <div class="tile"><span class="tile-label">Sessions</span><span id="tile-sessions" class="tile-value">0</span></div>
+        <div class="tile"><span class="tile-label">Record / jour</span><span id="tile-best" class="tile-value">0</span></div>
+      </div>
+
+      <div class="chart-card">
+        <h2>Mégots par heure de la journée</h2>
+        <div id="chart-hours" class="chart"></div>
+        <details><summary>Voir en tableau</summary><div id="table-hours"></div></details>
+      </div>
+
+      <div class="chart-card">
+        <h2>Mégots par jour</h2>
+        <div id="chart-days" class="chart"></div>
+        <details><summary>Voir en tableau</summary><div id="table-days"></div></details>
+      </div>
+
+      <div class="export-row">
+        <button id="btn-export-geojson" class="btn btn-ghost">⬇ GeoJSON</button>
+        <button id="btn-export-csv" class="btn btn-ghost">⬇ CSV</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-panel="session">📍 Session</button>
+    <button class="tab" data-panel="map">🗺️ Carte</button>
+    <button class="tab" data-panel="stats">📊 Stats</button>
+  </nav>
+
+  <div id="tooltip" class="viz-tooltip" hidden></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+  </script>
+</body>
+</html>

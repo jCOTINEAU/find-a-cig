@@ -1,0 +1,11 @@
+# Hashes vérifiés contre https://pypi.org/pypi/<pkg>/json le 2026-09-06 (wheels cp314 macOS universal2)
+bleak==3.0.2 \
+    --hash=sha256:39092feb9e83f1df5ad2f88e837723c7211c982ce9e9cda6235104bc2ebe0d0d
+pyobjc-core==12.2.2 \
+    --hash=sha256:2062e8ad30a310441cd022544a897553408bebeaa7820d5edba3c96fd7fd693b
+pyobjc-framework-cocoa==12.2.2 \
+    --hash=sha256:889d7bbd4ba2d4941078bfbbfb882138e51dbead27df006abfe0f2e0d49b5b2e
+pyobjc-framework-corebluetooth==12.2.2 \
+    --hash=sha256:c8d748b3ece787c750cdfc0ab820bd0316a084015453ca48b7885fcf56d3f782
+pyobjc-framework-libdispatch==12.2.2 \
+    --hash=sha256:2488964343f9282e3521ab2f136948a8eaf7438351dc45c39e34ba23b9f5bc6b

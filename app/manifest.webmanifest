@@ -1,0 +1,14 @@
+{
+  "name": "Find a Cig — compteur de déchets",
+  "short_name": "Find a Cig",
+  "description": "Cartographie des mégots au sol avec la Poké Ball Plus comme compteur.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f9f9f7",
+  "theme_color": "#2a78d6",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

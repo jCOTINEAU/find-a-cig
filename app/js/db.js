@@ -1,0 +1,66 @@
+// IndexedDB — stockage local des sessions et des points.
+const DB_NAME = 'find-a-cig';
+const DB_VERSION = 1;
+
+let dbPromise = null;
+
+function open() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+      const points = db.createObjectStore('points', { keyPath: 'id', autoIncrement: true });
+      points.createIndex('sessionId', 'sessionId');
+      points.createIndex('ts', 'ts');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+function tx(store, mode, fn) {
+  return open().then(db => new Promise((resolve, reject) => {
+    const t = db.transaction(store, mode);
+    const result = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(result.result !== undefined ? result.result : result);
+    t.onerror = () => reject(t.error);
+  }));
+}
+
+export function createSession() {
+  return tx('sessions', 'readwrite', s => s.add({ start: Date.now(), end: null }));
+}
+
+export async function endSession(id) {
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction('sessions', 'readwrite');
+    const store = t.objectStore('sessions');
+    const get = store.get(id);
+    get.onsuccess = () => {
+      const session = get.result;
+      if (session) { session.end = Date.now(); store.put(session); }
+    };
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+}
+
+export function addPoint(point) {
+  return tx('points', 'readwrite', s => s.add(point));
+}
+
+export function deletePoint(id) {
+  return tx('points', 'readwrite', s => s.delete(id));
+}
+
+export function getAllPoints() {
+  return tx('points', 'readonly', s => s.getAll());
+}
+
+export function getAllSessions() {
+  return tx('sessions', 'readonly', s => s.getAll());
+}
