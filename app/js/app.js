@@ -9,6 +9,10 @@ const TYPES = {
 
 const $ = id => document.getElementById(id);
 
+// Durée pendant laquelle un point fraîchement marqué accepte un meilleur fix GPS.
+// Assez court pour ne pas enregistrer l'endroit où on a marché ensuite.
+const REFINE_MS = 6000;
+
 const state = {
   sessionId: null,
   sessionCount: 0,
@@ -20,6 +24,7 @@ const state = {
   map: null,
   mapLayer: null,
   audioCtx: null,
+  pending: [],         // points en cours d'affinage : { id, until, bestAcc }
 };
 
 const ball = new PokeBall();
@@ -47,6 +52,37 @@ function feedback() {
 }
 
 /* ═══ Géolocalisation ═══ */
+function updateGeoStatus(acc) {
+  const el = $('geo-status');
+  if (acc <= 15) {
+    el.dataset.state = 'ok';
+    el.textContent = `GPS ±${Math.round(acc)} m ✓`;
+  } else if (acc <= 35) {
+    el.dataset.state = 'off';
+    el.textContent = `GPS ±${Math.round(acc)} m — se précise…`;
+  } else {
+    el.dataset.state = 'bad';
+    el.textContent = `GPS ±${Math.round(acc)} m — imprécis, attends un peu`;
+  }
+}
+
+// À chaque nouveau fix, améliore les points marqués récemment si la précision
+// s'est améliorée depuis leur enregistrement.
+function refinePending(fix) {
+  if (state.pending.length === 0) return;
+  const now = Date.now();
+  state.pending = state.pending.filter(p => p.until > now);
+  for (const p of state.pending) {
+    if (fix.acc < p.bestAcc) {
+      p.bestAcc = fix.acc;
+      db.updatePoint(p.id, { lat: fix.lat, lon: fix.lon, acc: fix.acc });
+      if (state.lastPointId === p.id) {
+        $('session-log').textContent = `Position affinée à ±${Math.round(fix.acc)} m`;
+      }
+    }
+  }
+}
+
 function startGeo() {
   if (!('geolocation' in navigator)) {
     $('geo-status').dataset.state = 'bad';
@@ -55,20 +91,21 @@ function startGeo() {
   }
   state.watchId = navigator.geolocation.watchPosition(
     pos => {
-      state.lastFix = {
+      const fix = {
         lat: pos.coords.latitude,
         lon: pos.coords.longitude,
         acc: pos.coords.accuracy,
         ts: pos.timestamp,
       };
-      $('geo-status').dataset.state = pos.coords.accuracy <= 25 ? 'ok' : 'off';
-      $('geo-status').textContent = `GPS ±${Math.round(pos.coords.accuracy)} m`;
+      state.lastFix = fix;
+      updateGeoStatus(fix.acc);
+      refinePending(fix);
     },
     err => {
       $('geo-status').dataset.state = 'bad';
       $('geo-status').textContent = `GPS : ${err.message}`;
     },
-    { enableHighAccuracy: true, maximumAge: 5000 },
+    { enableHighAccuracy: true, maximumAge: 0 }, // jamais de position en cache
   );
 }
 
@@ -76,6 +113,7 @@ function stopGeo() {
   if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
   state.watchId = null;
   state.lastFix = null;
+  state.pending = [];
   $('geo-status').dataset.state = 'off';
   $('geo-status').textContent = 'GPS inactif';
 }
@@ -99,6 +137,7 @@ async function toggleSession() {
     $('btn-session').classList.add('stop');
     $('btn-mark').disabled = false;
     $('session-log').textContent = 'Session démarrée — bonne chasse !';
+    $('bg-hint').hidden = false;
     startGeo();
     acquireWakeLock();
     state.audioCtx ??= new AudioContext(); // initialisé sur geste utilisateur
@@ -110,36 +149,39 @@ async function toggleSession() {
     $('btn-session').classList.remove('stop');
     $('btn-mark').disabled = true;
     $('btn-undo').disabled = true;
+    $('bg-hint').hidden = true;
     stopGeo();
     state.wakeLock?.release().catch(() => {});
+    state.wakeLock = null;
   }
 }
 
 async function mark(type = 'megot') {
   if (state.sessionId === null) return;
   const fix = state.lastFix;
-  const stale = fix && Date.now() - fix.ts > 30_000;
+  const usable = fix && Date.now() - fix.ts < 15_000;
   const point = {
     sessionId: state.sessionId,
     ts: Date.now(),
     type,
-    lat: fix && !stale ? fix.lat : null,
-    lon: fix && !stale ? fix.lon : null,
-    acc: fix && !stale ? fix.acc : null,
+    lat: usable ? fix.lat : null,
+    lon: usable ? fix.lon : null,
+    acc: usable ? fix.acc : null,
   };
   const id = await db.addPoint(point);
   state.lastPointId = id;
   state.sessionCount++;
   $('session-count').textContent = String(state.sessionCount);
   $('btn-undo').disabled = false;
-  $('session-log').textContent = point.lat === null
-    ? '⏳ Marqué — position GPS en cours…'
-    : `Marqué à ±${Math.round(point.acc)} m`;
   feedback();
 
-  // Position absente ou périmée au moment de l'appui : on demande un fix
-  // frais et on complète le point a posteriori.
-  if (point.lat === null && 'geolocation' in navigator) {
+  if (usable) {
+    $('session-log').textContent = `Marqué à ±${Math.round(fix.acc)} m`;
+    // Affine ce point si un meilleur fix arrive dans les secondes qui suivent.
+    state.pending.push({ id, until: Date.now() + REFINE_MS, bestAcc: fix.acc });
+  } else if ('geolocation' in navigator) {
+    // Aucun fix récent : one-shot pour compléter le point a posteriori.
+    $('session-log').textContent = '⏳ Marqué — position GPS en cours…';
     navigator.geolocation.getCurrentPosition(
       async pos => {
         await db.updatePoint(id, {
@@ -156,13 +198,14 @@ async function mark(type = 'megot') {
           $('session-log').textContent = '⚠️ Marqué sans position (GPS indisponible)';
         }
       },
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 10_000 },
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
     );
   }
 }
 
 async function undo() {
   if (state.lastPointId === null) return;
+  state.pending = state.pending.filter(p => p.id !== state.lastPointId);
   await db.deletePoint(state.lastPointId);
   state.lastPointId = null;
   state.sessionCount = Math.max(0, state.sessionCount - 1);
