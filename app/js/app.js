@@ -127,14 +127,38 @@ async function mark(type = 'megot') {
     lon: fix && !stale ? fix.lon : null,
     acc: fix && !stale ? fix.acc : null,
   };
-  state.lastPointId = await db.addPoint(point);
+  const id = await db.addPoint(point);
+  state.lastPointId = id;
   state.sessionCount++;
   $('session-count').textContent = String(state.sessionCount);
   $('btn-undo').disabled = false;
   $('session-log').textContent = point.lat === null
-    ? '⚠️ Marqué sans position (GPS pas encore fixé)'
+    ? '⏳ Marqué — position GPS en cours…'
     : `Marqué à ±${Math.round(point.acc)} m`;
   feedback();
+
+  // Position absente ou périmée au moment de l'appui : on demande un fix
+  // frais et on complète le point a posteriori.
+  if (point.lat === null && 'geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        await db.updatePoint(id, {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          acc: pos.coords.accuracy,
+        });
+        if (state.lastPointId === id) {
+          $('session-log').textContent = `Position rattrapée à ±${Math.round(pos.coords.accuracy)} m`;
+        }
+      },
+      () => {
+        if (state.lastPointId === id) {
+          $('session-log').textContent = '⚠️ Marqué sans position (GPS indisponible)';
+        }
+      },
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 10_000 },
+    );
+  }
 }
 
 async function undo() {
@@ -193,20 +217,54 @@ async function filteredPoints() {
 }
 
 /* ═══ Carte ═══ */
+function centerOnUser(zoom = 17) {
+  const place = (lat, lon) => {
+    state.map.setView([lat, lon], zoom);
+    state.meMarker?.remove();
+    state.meMarker = L.circleMarker([lat, lon], {
+      radius: 8, color: '#fcfcfb', weight: 2, fillColor: '#0ca30c', fillOpacity: 1,
+    }).bindPopup('Ma position').addTo(state.map);
+  };
+  if (state.lastFix && Date.now() - state.lastFix.ts < 30_000) {
+    place(state.lastFix.lat, state.lastFix.lon);
+  } else {
+    navigator.geolocation?.getCurrentPosition(
+      pos => place(pos.coords.latitude, pos.coords.longitude),
+      () => {}, // refus/échec : on garde la vue courante
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+    );
+  }
+}
+
 async function renderMap() {
   if (!state.map) {
-    state.map = L.map('map').setView([48.8566, 2.3522], 13);
+    state.map = L.map('map', { zoomControl: true }).setView([46.6, 2.4], 5); // France en attendant le fix
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(state.map);
     state.mapLayer = L.layerGroup().addTo(state.map);
+    L.Control.Locate = L.Control.extend({
+      onAdd() {
+        const btn = L.DomUtil.create('button', 'leaflet-bar locate-btn');
+        btn.textContent = '📍';
+        btn.title = 'Centrer sur ma position';
+        L.DomEvent.on(btn, 'click', e => { L.DomEvent.stop(e); centerOnUser(); });
+        return btn;
+      },
+    });
+    new L.Control.Locate({ position: 'topleft' }).addTo(state.map);
   }
   state.map.invalidateSize();
 
   state.mapLayer.clearLayers();
-  const points = (await filteredPoints()).filter(p => p.lat !== null);
-  if (points.length === 0) return;
+  const all = await filteredPoints();
+  const points = all.filter(p => p.lat !== null);
+  const missing = all.length - points.length;
+
+  const banner = $('map-banner');
+  banner.hidden = missing === 0;
+  banner.textContent = `⚠️ ${missing} point(s) sans position GPS (non affichés)`;
 
   const seriesBlue = getComputedStyle(document.documentElement).getPropertyValue('--series-1').trim();
   for (const p of points) {
@@ -216,7 +274,12 @@ async function renderMap() {
       .bindPopup(`${TYPES[p.type]?.label ?? p.type} — ${new Date(p.ts).toLocaleString('fr-FR')}`)
       .addTo(state.mapLayer);
   }
-  state.map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lon])).pad(0.2));
+
+  if (points.length > 0) {
+    state.map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lon])).pad(0.2));
+  } else {
+    centerOnUser(); // pas de points : on centre sur l'utilisateur
+  }
 }
 
 /* ═══ Stats ═══ */

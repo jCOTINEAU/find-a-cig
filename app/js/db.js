@@ -53,6 +53,22 @@ export function addPoint(point) {
   return tx('points', 'readwrite', s => s.add(point));
 }
 
+// Complète un point existant (ex. position GPS arrivée après le marquage).
+// No-op si le point a été supprimé entre-temps (undo).
+export async function updatePoint(id, patch) {
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction('points', 'readwrite');
+    const store = t.objectStore('points');
+    const get = store.get(id);
+    get.onsuccess = () => {
+      if (get.result) store.put({ ...get.result, ...patch });
+    };
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+}
+
 export function deletePoint(id) {
   return tx('points', 'readwrite', s => s.delete(id));
 }
