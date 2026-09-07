@@ -35,10 +35,15 @@
       <div class="session-box">
         <div class="hero-count">
           <span id="session-count" class="hero-value">0</span>
-          <span class="hero-label">mégots cette session</span>
+          <span id="hero-label" class="hero-label">mégots cette session</span>
         </div>
 
         <div id="geo-status" class="geo-status" data-state="off">GPS inactif</div>
+
+        <div id="mode-select" class="mode-select" role="group" aria-label="Type de session">
+          <button class="mode-opt selected" data-mode="detection">🔍 Détection</button>
+          <button class="mode-opt" data-mode="collecte">🧤 Collecte</button>
+        </div>
 
         <button id="btn-session" class="btn btn-primary btn-big">Démarrer une session</button>
 
@@ -58,15 +63,19 @@
     <!-- ═══ Onglet Carte ═══ -->
     <section id="panel-map" class="panel">
       <div id="map-banner" class="map-banner" hidden></div>
+      <div id="map-legend" class="map-legend" hidden>
+        <span class="legend-key"><span class="legend-dot" data-mode="detection"></span>Détection</span>
+        <span class="legend-key"><span class="legend-dot" data-mode="collecte"></span>Collecte</span>
+      </div>
       <div id="map"></div>
     </section>
 
     <!-- ═══ Onglet Stats ═══ -->
     <section id="panel-stats" class="panel">
       <div class="tiles">
-        <div class="tile"><span class="tile-label">Total mégots</span><span id="tile-total" class="tile-value">0</span></div>
+        <div class="tile"><span class="tile-label">🔍 Détectés</span><span id="tile-detected" class="tile-value">0</span></div>
+        <div class="tile"><span class="tile-label">🧤 Ramassés</span><span id="tile-collected" class="tile-value">0</span></div>
         <div class="tile"><span class="tile-label">Sessions</span><span id="tile-sessions" class="tile-value">0</span></div>
-        <div class="tile"><span class="tile-label">Record / jour</span><span id="tile-best" class="tile-value">0</span></div>
       </div>
 
       <div class="chart-card">

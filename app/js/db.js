@@ -30,8 +30,8 @@ function tx(store, mode, fn) {
   }));
 }
 
-export function createSession() {
-  return tx('sessions', 'readwrite', s => s.add({ start: Date.now(), end: null }));
+export function createSession(mode = 'detection') {
+  return tx('sessions', 'readwrite', s => s.add({ start: Date.now(), end: null, mode }));
 }
 
 export async function endSession(id) {

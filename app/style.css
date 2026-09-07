@@ -10,6 +10,7 @@
   --baseline:       #c3c2b7;
   --border:         rgba(11, 11, 11, 0.10);
   --series-1:       #2a78d6;
+  --series-2:       #008300;
   --good:           #0ca30c;
   --critical:       #d03b3b;
 }
@@ -25,6 +26,7 @@
     --baseline:       #383835;
     --border:         rgba(255, 255, 255, 0.10);
     --series-1:       #3987e5;
+    --series-2:       #008300;
   }
 }
 
@@ -119,6 +121,27 @@ main { flex: 1; overflow-y: auto; }
 .hero-value { font-size: 64px; font-weight: 600; line-height: 1; display: block; }
 .hero-label { font-size: 14px; color: var(--text-secondary); }
 
+.mode-select { display: flex; gap: 8px; width: 100%; max-width: 360px; }
+.mode-opt {
+  flex: 1;
+  font: inherit;
+  font-size: 14px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.mode-opt.selected {
+  border-color: var(--series-1);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--series-1);
+}
+.mode-opt[data-mode="collecte"].selected { border-color: var(--series-2); box-shadow: inset 0 0 0 1px var(--series-2); }
+.mode-select[hidden] { display: none; }
+
 .geo-status { font-size: 13px; color: var(--text-muted); }
 .geo-status[data-state="ok"]   { color: var(--good); }
 .geo-status[data-state="bad"]  { color: var(--critical); }
@@ -171,6 +194,20 @@ main { flex: 1; overflow-y: auto; }
   background: var(--surface-1);
   border-bottom: 1px solid var(--border);
 }
+.map-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+.map-legend[hidden] { display: none; }
+.legend-key { display: inline-flex; align-items: center; gap: 6px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface-1); box-shadow: 0 0 0 1px var(--border); }
+.legend-dot[data-mode="detection"] { background: var(--series-1); }
+.legend-dot[data-mode="collecte"] { background: var(--series-2); }
 .locate-btn {
   width: 34px;
   height: 34px;
@@ -254,6 +291,9 @@ main { flex: 1; overflow-y: auto; }
 }
 .session-name:focus { outline: none; border-bottom-color: var(--series-1); }
 .session-meta { font-size: 13px; color: var(--text-secondary); }
+.session-mode { font-size: 12px; font-weight: 600; }
+.session-mode[data-mode="detection"] { color: var(--series-1); }
+.session-mode[data-mode="collecte"] { color: var(--series-2); }
 .session-del { align-self: flex-start; font-size: 13px; }
 .session-del.danger { color: #fff; background: var(--critical); border-color: var(--critical); }
 

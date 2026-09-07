@@ -7,6 +7,13 @@ const TYPES = {
   megot: { label: 'Mégot', color: 'var(--series-1)' },
 };
 
+// Modes de session : détection (cartographier au sol) vs collecte (ce qu'on retire).
+const MODES = {
+  detection: { icon: '🔍', label: 'Détection', heroLabel: 'détectés cette session', verb: 'Détecté', color: 'var(--series-1)' },
+  collecte:  { icon: '🧤', label: 'Collecte',  heroLabel: 'ramassés cette session', verb: 'Ramassé', color: 'var(--series-2)' },
+};
+const modeOf = session => MODES[session?.mode] ? session.mode : 'detection';
+
 const $ = id => document.getElementById(id);
 
 // Durée pendant laquelle un point fraîchement marqué accepte un meilleur fix GPS.
@@ -21,6 +28,7 @@ const state = {
   watchId: null,
   wakeLock: null,
   range: 'all',        // today | 7 | 30 | all
+  mode: 'detection',   // mode de la session en cours / sélectionné
   map: null,
   mapLayer: null,
   audioCtx: null,
@@ -129,14 +137,16 @@ document.addEventListener('visibilitychange', () => {
 /* ═══ Session ═══ */
 async function toggleSession() {
   if (state.sessionId === null) {
-    state.sessionId = await db.createSession();
+    state.sessionId = await db.createSession(state.mode);
     state.sessionCount = 0;
     state.lastPointId = null;
     $('session-count').textContent = '0';
+    $('hero-label').textContent = MODES[state.mode].heroLabel;
+    $('mode-select').hidden = true;
     $('btn-session').textContent = 'Terminer la session';
     $('btn-session').classList.add('stop');
     $('btn-mark').disabled = false;
-    $('session-log').textContent = 'Session démarrée — bonne chasse !';
+    $('session-log').textContent = `${MODES[state.mode].icon} ${MODES[state.mode].label} démarrée — bonne chasse !`;
     $('bg-hint').hidden = false;
     startGeo();
     acquireWakeLock();
@@ -147,6 +157,8 @@ async function toggleSession() {
     state.sessionId = null;
     $('btn-session').textContent = 'Démarrer une session';
     $('btn-session').classList.remove('stop');
+    $('mode-select').hidden = false;
+    $('hero-label').textContent = 'mégots cette session';
     $('btn-mark').disabled = true;
     $('btn-undo').disabled = true;
     $('bg-hint').hidden = true;
@@ -176,7 +188,7 @@ async function mark(type = 'megot') {
   feedback();
 
   if (usable) {
-    $('session-log').textContent = `Marqué à ±${Math.round(fix.acc)} m`;
+    $('session-log').textContent = `${MODES[state.mode].verb} à ±${Math.round(fix.acc)} m`;
     // Affine ce point si un meilleur fix arrive dans les secondes qui suivent.
     state.pending.push({ id, until: Date.now() + REFINE_MS, bestAcc: fix.acc });
   } else if ('geolocation' in navigator) {
@@ -259,6 +271,13 @@ async function filteredPoints() {
   return (await db.getAllPoints()).filter(p => p.ts >= start);
 }
 
+// Map sessionId → mode ('detection' par défaut pour les anciennes sessions).
+async function sessionModeMap() {
+  const map = new Map();
+  for (const s of await db.getAllSessions()) map.set(s.id, modeOf(s));
+  return map;
+}
+
 /* ═══ Carte ═══ */
 function centerOnUser(zoom = 17) {
   const place = (lat, lon) => {
@@ -302,6 +321,7 @@ async function renderMap() {
 
   state.mapLayer.clearLayers();
   const all = await filteredPoints();
+  const sessionMode = await sessionModeMap();
   const points = all.filter(p => p.lat !== null);
   const missing = all.length - points.length;
 
@@ -309,12 +329,19 @@ async function renderMap() {
   banner.hidden = missing === 0;
   banner.textContent = `⚠️ ${missing} point(s) sans position GPS (non affichés)`;
 
-  const seriesBlue = getComputedStyle(document.documentElement).getPropertyValue('--series-1').trim();
+  // Légende visible seulement si les deux modes sont présents.
+  const modesPresent = new Set(points.map(p => sessionMode.get(p.sessionId) ?? 'detection'));
+  $('map-legend').hidden = modesPresent.size < 2;
+
+  const css = getComputedStyle(document.documentElement);
+  const colorFor = mode => css.getPropertyValue(MODES[mode].color.replace('var(', '').replace(')', '')).trim();
   for (const p of points) {
+    const mode = sessionMode.get(p.sessionId) ?? 'detection';
     L.circleMarker([p.lat, p.lon], {
-      radius: 6, color: '#fcfcfb', weight: 2, fillColor: seriesBlue, fillOpacity: 0.9,
+      radius: 6, color: '#fcfcfb', weight: 2, fillColor: colorFor(mode), fillOpacity: 0.9,
     })
-      .bindPopup(`${TYPES[p.type]?.label ?? p.type} — ${new Date(p.ts).toLocaleString('fr-FR')}`
+      .bindPopup(`${MODES[mode].icon} ${MODES[mode].label} — ${TYPES[p.type]?.label ?? p.type}`
+        + ` · ${new Date(p.ts).toLocaleString('fr-FR')}`
         + (p.acc != null ? ` · ±${Math.round(p.acc)} m` : ' · sans position'))
       .addTo(state.mapLayer);
   }
@@ -335,14 +362,19 @@ function localDay(ts) {
 async function renderStats() {
   const points = await filteredPoints();
   const sessions = await db.getAllSessions();
+  const sessionMode = await sessionModeMap();
   const start = rangeStart();
 
-  // Tuiles
-  const byDay = new Map();
-  for (const p of points) byDay.set(localDay(p.ts), (byDay.get(localDay(p.ts)) ?? 0) + 1);
-  $('tile-total').textContent = String(points.length);
+  // Tuiles : séparation détectés / ramassés selon le mode de leur session.
+  let detected = 0;
+  let collected = 0;
+  for (const p of points) {
+    if ((sessionMode.get(p.sessionId) ?? 'detection') === 'collecte') collected++;
+    else detected++;
+  }
+  $('tile-detected').textContent = String(detected);
+  $('tile-collected').textContent = String(collected);
   $('tile-sessions').textContent = String(sessions.filter(s => s.start >= start).length);
-  $('tile-best').textContent = String(Math.max(0, ...byDay.values()));
 
   // Par heure de la journée (0–23)
   const hours = Array(24).fill(0);
@@ -352,6 +384,8 @@ async function renderStats() {
   renderTable($('table-hours'), { labels: hourLabels, values: hours, colLabel: 'Heure' });
 
   // Par jour (14 derniers jours de la période)
+  const byDay = new Map();
+  for (const p of points) byDay.set(localDay(p.ts), (byDay.get(localDay(p.ts)) ?? 0) + 1);
   const days = [];
   const dayValues = [];
   for (let i = 13; i >= 0; i--) {
@@ -380,12 +414,18 @@ function fmtDuration(session) {
 }
 
 function defaultName(session) {
-  return `Session du ${fmtDateTime(session.start)}`;
+  return `${MODES[modeOf(session)].label} du ${fmtDateTime(session.start)}`;
 }
 
 function sessionCard(session, count) {
+  const mode = modeOf(session);
   const card = document.createElement('div');
   card.className = 'session-card';
+
+  const badge = document.createElement('div');
+  badge.className = 'session-mode';
+  badge.dataset.mode = mode;
+  badge.textContent = `${MODES[mode].icon} ${MODES[mode].label}`;
 
   const name = document.createElement('input');
   name.className = 'session-name';
@@ -395,9 +435,10 @@ function sessionCard(session, count) {
     db.renameSession(session.id, name.value.trim() || defaultName(session));
   });
 
+  const verb = mode === 'collecte' ? 'ramassé' : 'détecté';
   const meta = document.createElement('div');
   meta.className = 'session-meta';
-  meta.textContent = `${count} mégot${count > 1 ? 's' : ''} · ${fmtDateTime(session.start)} · ${fmtDuration(session)}`;
+  meta.textContent = `${count} ${verb}${count > 1 ? 's' : ''} · ${fmtDateTime(session.start)} · ${fmtDuration(session)}`;
 
   const del = document.createElement('button');
   del.className = 'btn btn-ghost session-del';
@@ -427,7 +468,7 @@ function sessionCard(session, count) {
     renderSessions();
   });
 
-  card.append(name, meta, del);
+  card.append(badge, name, meta, del);
   return card;
 }
 
@@ -464,23 +505,35 @@ function download(filename, mime, content) {
 }
 
 async function exportGeoJSON() {
+  const sessionMode = await sessionModeMap();
   const points = (await filteredPoints()).filter(p => p.lat !== null);
   const geojson = {
     type: 'FeatureCollection',
     features: points.map(p => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-      properties: { type: p.type, ts: new Date(p.ts).toISOString(), accuracy_m: p.acc, sessionId: p.sessionId },
+      properties: {
+        type: p.type,
+        mode: sessionMode.get(p.sessionId) ?? 'detection',
+        ts: new Date(p.ts).toISOString(),
+        accuracy_m: p.acc,
+        sessionId: p.sessionId,
+      },
     })),
   };
   download('find-a-cig.geojson', 'application/geo+json', JSON.stringify(geojson, null, 2));
 }
 
 async function exportCSV() {
+  const sessionMode = await sessionModeMap();
   const points = await filteredPoints();
-  const rows = [['ts_iso', 'type', 'lat', 'lon', 'accuracy_m', 'session_id']];
+  const rows = [['ts_iso', 'mode', 'type', 'lat', 'lon', 'accuracy_m', 'session_id']];
   for (const p of points) {
-    rows.push([new Date(p.ts).toISOString(), p.type, p.lat ?? '', p.lon ?? '', p.acc ?? '', p.sessionId]);
+    rows.push([
+      new Date(p.ts).toISOString(),
+      sessionMode.get(p.sessionId) ?? 'detection',
+      p.type, p.lat ?? '', p.lon ?? '', p.acc ?? '', p.sessionId,
+    ]);
   }
   download('find-a-cig.csv', 'text/csv', rows.map(r => r.join(',')).join('\n'));
 }
@@ -519,6 +572,14 @@ $('btn-undo').addEventListener('click', undo);
 $('btn-ball').addEventListener('click', connectBall);
 $('btn-export-geojson').addEventListener('click', exportGeoJSON);
 $('btn-export-csv').addEventListener('click', exportCSV);
+for (const opt of document.querySelectorAll('.mode-opt')) {
+  opt.addEventListener('click', () => {
+    if (state.sessionId !== null) return; // pas de changement de mode en cours de session
+    document.querySelector('.mode-opt.selected')?.classList.remove('selected');
+    opt.classList.add('selected');
+    state.mode = opt.dataset.mode;
+  });
+}
 for (const tab of document.querySelectorAll('.tab')) {
   tab.addEventListener('click', () => showPanel(tab.dataset.panel));
 }
