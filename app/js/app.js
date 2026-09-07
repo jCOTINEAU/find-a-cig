@@ -314,7 +314,8 @@ async function renderMap() {
     L.circleMarker([p.lat, p.lon], {
       radius: 6, color: '#fcfcfb', weight: 2, fillColor: seriesBlue, fillOpacity: 0.9,
     })
-      .bindPopup(`${TYPES[p.type]?.label ?? p.type} — ${new Date(p.ts).toLocaleString('fr-FR')}`)
+      .bindPopup(`${TYPES[p.type]?.label ?? p.type} — ${new Date(p.ts).toLocaleString('fr-FR')}`
+        + (p.acc != null ? ` · ±${Math.round(p.acc)} m` : ' · sans position'))
       .addTo(state.mapLayer);
   }
 
@@ -364,6 +365,94 @@ async function renderStats() {
   renderTable($('table-days'), { labels: days, values: dayValues, colLabel: 'Jour' });
 }
 
+/* ═══ Historique des sessions ═══ */
+function fmtDateTime(ts) {
+  return new Date(ts).toLocaleString('fr-FR', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function fmtDuration(session) {
+  if (!session.end) return 'en cours';
+  const min = Math.round((session.end - session.start) / 60_000);
+  if (min < 1) return '< 1 min';
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
+}
+
+function defaultName(session) {
+  return `Session du ${fmtDateTime(session.start)}`;
+}
+
+function sessionCard(session, count) {
+  const card = document.createElement('div');
+  card.className = 'session-card';
+
+  const name = document.createElement('input');
+  name.className = 'session-name';
+  name.value = session.name || defaultName(session);
+  name.setAttribute('aria-label', 'Nom de la session');
+  name.addEventListener('change', () => {
+    db.renameSession(session.id, name.value.trim() || defaultName(session));
+  });
+
+  const meta = document.createElement('div');
+  meta.className = 'session-meta';
+  meta.textContent = `${count} mégot${count > 1 ? 's' : ''} · ${fmtDateTime(session.start)} · ${fmtDuration(session)}`;
+
+  const del = document.createElement('button');
+  del.className = 'btn btn-ghost session-del';
+  del.textContent = '🗑 Supprimer';
+  // Suppression en deux temps (pas de dialogue bloquant).
+  let armed = false;
+  let timer = null;
+  del.addEventListener('click', async () => {
+    if (session.id === state.sessionId) {
+      del.textContent = 'Session en cours — termine-la d\'abord';
+      setTimeout(() => { del.textContent = '🗑 Supprimer'; }, 2500);
+      return;
+    }
+    if (!armed) {
+      armed = true;
+      del.textContent = 'Confirmer la suppression ?';
+      del.classList.add('danger');
+      timer = setTimeout(() => {
+        armed = false;
+        del.textContent = '🗑 Supprimer';
+        del.classList.remove('danger');
+      }, 3000);
+      return;
+    }
+    clearTimeout(timer);
+    await db.deleteSession(session.id);
+    renderSessions();
+  });
+
+  card.append(name, meta, del);
+  return card;
+}
+
+async function renderSessions() {
+  const container = $('sessions-list');
+  container.replaceChildren();
+  const [sessions, points] = await Promise.all([db.getAllSessions(), db.getAllPoints()]);
+
+  if (sessions.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'Aucune session enregistrée.';
+    container.append(empty);
+    return;
+  }
+
+  const counts = new Map();
+  for (const p of points) counts.set(p.sessionId, (counts.get(p.sessionId) ?? 0) + 1);
+
+  sessions.sort((a, b) => b.start - a.start);
+  for (const session of sessions) {
+    container.append(sessionCard(session, counts.get(session.id) ?? 0));
+  }
+}
+
 /* ═══ Exports ═══ */
 function download(filename, mime, content) {
   const url = URL.createObjectURL(new Blob([content], { type: mime }));
@@ -400,10 +489,28 @@ async function exportCSV() {
 function showPanel(name) {
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.panel === name);
   for (const panel of document.querySelectorAll('.panel')) panel.classList.toggle('active', panel.id === `panel-${name}`);
-  $('filter-row').hidden = name === 'session';
+  $('filter-row').hidden = name === 'session' || name === 'sessions';
   if (name === 'map') renderMap();
   if (name === 'stats') renderStats();
+  if (name === 'sessions') renderSessions();
 }
+
+/* ═══ Déclencheur clavier / télécommande Bluetooth ═══ */
+// Permet de marquer sans la ball : télécommande photo BT (souvent reconnue comme
+// clavier envoyant Entrée / flèches / volume) ou clavier. Voir la limite des
+// boutons de volume physiques expliquée à l'utilisateur.
+const MARK_CODES = new Set([
+  'AudioVolumeUp', 'ArrowUp', 'Enter', 'NumpadEnter', 'Space', 'NumpadAdd',
+]);
+document.addEventListener('keydown', e => {
+  if (state.sessionId === null || e.repeat) return;
+  const tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
+  if (MARK_CODES.has(e.code) || e.key === '+' || e.key === 'VolumeUp') {
+    e.preventDefault();
+    mark('megot');
+  }
+});
 
 /* ═══ Init ═══ */
 $('btn-session').addEventListener('click', toggleSession);

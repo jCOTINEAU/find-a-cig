@@ -73,6 +73,37 @@ export function deletePoint(id) {
   return tx('points', 'readwrite', s => s.delete(id));
 }
 
+export async function renameSession(id, name) {
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction('sessions', 'readwrite');
+    const store = t.objectStore('sessions');
+    const get = store.get(id);
+    get.onsuccess = () => {
+      const session = get.result;
+      if (session) { session.name = name; store.put(session); }
+    };
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+}
+
+// Supprime une session ET tous ses points (cascade).
+export async function deleteSession(id) {
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(['sessions', 'points'], 'readwrite');
+    t.objectStore('sessions').delete(id);
+    const cursor = t.objectStore('points').index('sessionId').openKeyCursor(IDBKeyRange.only(id));
+    cursor.onsuccess = () => {
+      const cur = cursor.result;
+      if (cur) { t.objectStore('points').delete(cur.primaryKey); cur.continue(); }
+    };
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+}
+
 export function getAllPoints() {
   return tx('points', 'readonly', s => s.getAll());
 }
