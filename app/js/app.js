@@ -682,3 +682,13 @@ for (const chip of document.querySelectorAll('.chip')) {
 }
 
 if (!bleSupported) setBallStatus('off', 'Web Bluetooth indisponible (Chrome/Edge requis)');
+
+// Easter egg : 5 taps sur le titre → page cachée de debug BLE.
+let titleTaps = 0;
+let titleTapTimer = null;
+$('app-title').addEventListener('click', () => {
+  titleTaps++;
+  clearTimeout(titleTapTimer);
+  titleTapTimer = setTimeout(() => { titleTaps = 0; }, 2000);
+  if (titleTaps >= 5) { titleTaps = 0; location.href = 'debug.html'; }
+});

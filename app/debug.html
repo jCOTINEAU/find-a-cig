@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>🔧 BLE Debug — Find a Cig</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --muted: #52514e;
+      --border: rgba(11,11,11,.12); --accent: #2a78d6; --good: #0ca30c; --bad: #d03b3b;
+      --code-bg: #f2f1ec;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --page: #0d0d0d; --surface: #1a1a19; --text: #fff; --muted: #c3c2b7;
+        --border: rgba(255,255,255,.14); --accent: #3987e5; --good: #0ca30c; --bad: #e66767;
+        --code-bg: #111;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--page); color: var(--text); padding: 16px;
+      padding-top: calc(16px + env(safe-area-inset-top));
+      max-width: 820px; margin: 0 auto;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+    a { color: var(--accent); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+    .instructions { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .instructions ol { margin: 8px 0 0; padding-left: 20px; }
+    button {
+      font: inherit; font-size: 14px; padding: 9px 14px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    button:disabled { opacity: .45; cursor: default; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    label.chk { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+    .dev-info { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .dev-info b { color: var(--text); }
+    .svc { margin-top: 12px; }
+    .svc-title { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: var(--accent); word-break: break-all; }
+    .char { border-left: 2px solid var(--border); margin: 8px 0 8px 6px; padding: 6px 0 6px 10px; }
+    .char-uuid { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+    .props { font-size: 11px; color: var(--muted); margin: 2px 0 6px; }
+    .char button { font-size: 12px; padding: 4px 10px; }
+    .char input {
+      font: inherit; font-size: 12px; font-family: ui-monospace, Menlo, monospace;
+      padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--code-bg); color: var(--text); width: 180px;
+    }
+    #log {
+      font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.5;
+      background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px; height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .log-svc { color: var(--accent); font-weight: 700; }
+    .log-notify { color: var(--good); }
+    .log-err { color: var(--bad); }
+    .log-time { color: var(--muted); }
+    .warn { color: var(--bad); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>🔧 BLE Debug</h1>
+  <p class="sub">Explorateur Bluetooth Low Energy — <a href="index.html">← retour à Find a Cig</a></p>
+
+  <div class="card instructions">
+    Page cachée de debug. Permet de scanner n'importe quel appareil BLE, l'appairer, lister ses
+    services/characteristics GATT, s'abonner aux notifications et capturer les appuis de bouton en direct.
+    <ol>
+      <li>Mets l'appareil (Go-tcha, Poké Ball Plus…) en <b>mode appairage</b>.</li>
+      <li>Clique <b>« Scanner »</b> et choisis-le dans la liste Chrome.</li>
+      <li>Une fois connecté, <b>appuie sur les boutons</b> de l'appareil et regarde le journal.</li>
+      <li>Clique <b>« Copier le journal »</b> et envoie le résultat.</li>
+    </ol>
+    <span id="support-warn" class="warn" hidden>⚠️ Web Bluetooth indisponible sur ce navigateur. Utilise Chrome ou Edge sur Android/desktop (pas Safari/iOS).</span>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="btn-scan" class="primary">🔍 Scanner un appareil</button>
+      <button id="btn-disconnect" disabled>Déconnecter</button>
+      <label class="chk"><input type="checkbox" id="auto-notify" checked> s'abonner auto à toutes les notifications</label>
+    </div>
+    <div id="dev-info" class="dev-info" hidden></div>
+    <div id="services"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+      <b style="font-size:14px;">Journal</b>
+      <div class="row">
+        <button id="btn-copy">📋 Copier le journal</button>
+        <button id="btn-clear">Effacer</button>
+      </div>
+    </div>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    // UUIDs connus (Pokémon GO Plus / Poké Ball Plus + services standards).
+    // Nécessaire dans optionalServices pour que getPrimaryServices() les expose.
+    const KNOWN_SERVICES = [
+      0x1800, 0x1801, 0x180a, 0x180f, // generic access/attribute, device info, battery
+      '6675e16c-f36d-4567-bb55-6b51e27a23e5', // Poké Ball Plus — input (boutons/stick/IMU)
+      'bbe87709-5b89-4433-ab7f-8b8eef0d8e37', // GO Plus — certification (SFIDA)
+      '21c50462-67cb-63a3-5c4c-82b5b9939aeb', // GO Plus — LED / bouton
+      'addc3e26-4aa5-4c1a-8a6a-735db4e01c6c', // PBP — service custom
+      '2bbe7f7c-7304-4466-8407-8eaf89f8ce45', // PBP — service custom
+      'c7261110-f425-447a-a1bd-9d7246768bd8', // PBP — service custom
+      '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART (cartes de dev génériques)
+    ];
+
+    const $ = id => document.getElementById(id);
+    const logEl = $('log');
+    let device = null, server = null;
+
+    function now() {
+      const d = new Date();
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}.${String(d.getMilliseconds()).padStart(3,'0')}`;
+    }
+    function log(msg, cls) {
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      const t = document.createElement('span');
+      t.className = 'log-time';
+      t.textContent = now() + ' ';
+      line.append(t, document.createTextNode(msg));
+      logEl.append(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    const toHex = dv => Array.from(new Uint8Array(dv.buffer)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+    const toAscii = dv => Array.from(new Uint8Array(dv.buffer)).map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join('');
+    function parseHex(str) {
+      const clean = str.replace(/[^0-9a-fA-F]/g, '');
+      const out = new Uint8Array(Math.floor(clean.length / 2));
+      for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
+      return out;
+    }
+    const short = uuid => String(uuid).length > 8 ? String(uuid).slice(0, 8) + '…' : String(uuid);
+    const props = c => Object.entries({
+      read: c.properties.read, write: c.properties.write,
+      writeNR: c.properties.writeWithoutResponse, notify: c.properties.notify,
+      indicate: c.properties.indicate,
+    }).filter(([, v]) => v).map(([k]) => k).join(', ');
+
+    async function scan() {
+      if (!navigator.bluetooth) { log('Web Bluetooth indisponible.', 'log-err'); return; }
+      try {
+        log('Ouverture du sélecteur Bluetooth…');
+        device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: KNOWN_SERVICES,
+        });
+        log(`Appareil sélectionné : « ${device.name || '(sans nom)'} »  id=${device.id}`, 'log-svc');
+        device.addEventListener('gattserverdisconnected', () => {
+          log('⚡ Déconnecté.', 'log-err');
+          $('btn-disconnect').disabled = true;
+        });
+        await connect();
+      } catch (e) {
+        log('Erreur scan : ' + e.message, 'log-err');
+      }
+    }
+
+    async function connect() {
+      log('Connexion GATT…');
+      server = await device.gatt.connect();
+      $('btn-disconnect').disabled = false;
+
+      const info = $('dev-info');
+      info.hidden = false;
+      info.innerHTML = '';
+      const nameB = document.createElement('b');
+      nameB.textContent = device.name || '(sans nom)';
+      info.append('Connecté à ', nameB, ` — id ${device.id}`);
+
+      log('Énumération des services…');
+      const container = $('services');
+      container.innerHTML = '';
+      let services = [];
+      try {
+        services = await server.getPrimaryServices();
+      } catch (e) {
+        log('getPrimaryServices a échoué : ' + e.message, 'log-err');
+      }
+      log(`${services.length} service(s) accessible(s) (parmi les UUID connus).`);
+
+      for (const svc of services) {
+        log('service ' + svc.uuid, 'log-svc');
+        const svcDiv = document.createElement('div');
+        svcDiv.className = 'svc';
+        const title = document.createElement('div');
+        title.className = 'svc-title';
+        title.textContent = 'service ' + svc.uuid;
+        svcDiv.append(title);
+
+        let chars = [];
+        try { chars = await svc.getCharacteristics(); }
+        catch (e) { log('  getCharacteristics(' + short(svc.uuid) + ') : ' + e.message, 'log-err'); }
+
+        for (const c of chars) {
+          svcDiv.append(renderChar(c));
+          if ($('auto-notify').checked && (c.properties.notify || c.properties.indicate)) {
+            subscribe(c);
+          }
+        }
+        container.append(svcDiv);
+      }
+      log('Prêt. Appuie sur les boutons de l\'appareil pour capturer les notifications.');
+    }
+
+    function renderChar(c) {
+      const div = document.createElement('div');
+      div.className = 'char';
+      const uuid = document.createElement('div');
+      uuid.className = 'char-uuid';
+      uuid.textContent = c.uuid;
+      const p = document.createElement('div');
+      p.className = 'props';
+      p.textContent = '[' + (props(c) || 'aucune') + ']';
+      div.append(uuid, p);
+
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      if (c.properties.read) {
+        const b = document.createElement('button');
+        b.textContent = 'Lire';
+        b.onclick = async () => {
+          try { const v = await c.readValue(); log(`READ ${short(c.uuid)} : ${toHex(v)}   ascii="${toAscii(v)}"`); }
+          catch (e) { log('READ ' + short(c.uuid) + ' : ' + e.message, 'log-err'); }
+        };
+        row.append(b);
+      }
+      if (c.properties.notify || c.properties.indicate) {
+        const b = document.createElement('button');
+        b.textContent = "S'abonner";
+        b.onclick = () => subscribe(c);
+        row.append(b);
+      }
+      if (c.properties.write || c.properties.writeWithoutResponse) {
+        const inp = document.createElement('input');
+        inp.placeholder = 'octets hex ex: 01 ff';
+        const b = document.createElement('button');
+        b.textContent = 'Écrire';
+        b.onclick = async () => {
+          try {
+            const bytes = parseHex(inp.value);
+            if (c.properties.writeWithoutResponse) await c.writeValueWithoutResponse(bytes);
+            else await c.writeValue(bytes);
+            log(`WRITE ${short(c.uuid)} : ${Array.from(bytes).map(x=>x.toString(16).padStart(2,'0')).join(' ')}`);
+          } catch (e) { log('WRITE ' + short(c.uuid) + ' : ' + e.message, 'log-err'); }
+        };
+        row.append(inp, b);
+      }
+      div.append(row);
+      return div;
+    }
+
+    async function subscribe(c) {
+      try {
+        await c.startNotifications();
+        c.addEventListener('characteristicvaluechanged', e => {
+          const v = e.target.value;
+          log(`NOTIFY ${short(c.uuid)} : ${toHex(v)}`, 'log-notify');
+        });
+        log('Abonné aux notifications de ' + short(c.uuid));
+      } catch (e) {
+        log("Échec abonnement " + short(c.uuid) + ' : ' + e.message, 'log-err');
+      }
+    }
+
+    $('btn-scan').onclick = scan;
+    $('btn-disconnect').onclick = () => { if (device?.gatt.connected) device.gatt.disconnect(); };
+    $('btn-clear').onclick = () => { logEl.innerHTML = ''; };
+    $('btn-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(logEl.innerText); log('Journal copié dans le presse-papiers.'); }
+      catch { log('Copie impossible — sélectionne le texte manuellement.', 'log-err'); }
+    };
+
+    if (!navigator.bluetooth) { $('support-warn').hidden = false; $('btn-scan').disabled = true; }
+    log('Prêt. ' + KNOWN_SERVICES.length + ' UUID de services connus chargés.');
+
+    // Petit self-test des helpers (visible dans la console).
+    console.assert(parseHex('01 ff').length === 2 && parseHex('01 ff')[1] === 255, 'parseHex KO');
+  </script>
+</body>
+</html>
