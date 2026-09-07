@@ -20,6 +20,11 @@ const $ = id => document.getElementById(id);
 // Assez court pour ne pas enregistrer l'endroit où on a marché ensuite.
 const REFINE_MS = 6000;
 
+// Trajet : on pose un point dès qu'on s'est déplacé de TRACK_MIN_DIST mètres
+// (donc plus dense quand on marche vite), en ignorant les fixes trop imprécis.
+const TRACK_MIN_DIST = 8;
+const TRACK_MAX_ACC = 50;
+
 const state = {
   sessionId: null,
   sessionCount: 0,
@@ -33,7 +38,19 @@ const state = {
   mapLayer: null,
   audioCtx: null,
   pending: [],         // points en cours d'affinage : { id, until, bestAcc }
+  lastTrack: null,     // dernier point de trajet enregistré : { lat, lon }
 };
+
+// Distance en mètres entre deux positions (haversine).
+function distanceM(a, b) {
+  const R = 6_371_000;
+  const toRad = deg => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
 
 const ball = new PokeBall();
 
@@ -74,6 +91,15 @@ function updateGeoStatus(acc) {
   }
 }
 
+// Enregistre un point de trajet quand on s'est assez déplacé (échantillonnage
+// par distance = adaptatif à la vitesse), en filtrant les fixes trop imprécis.
+function maybeRecordTrack(fix) {
+  if (state.sessionId === null || fix.acc > TRACK_MAX_ACC) return;
+  if (state.lastTrack && distanceM(state.lastTrack, fix) < TRACK_MIN_DIST) return;
+  state.lastTrack = { lat: fix.lat, lon: fix.lon };
+  db.addTrackPoint({ sessionId: state.sessionId, ts: fix.ts, lat: fix.lat, lon: fix.lon, acc: fix.acc });
+}
+
 // À chaque nouveau fix, améliore les points marqués récemment si la précision
 // s'est améliorée depuis leur enregistrement.
 function refinePending(fix) {
@@ -92,6 +118,7 @@ function refinePending(fix) {
 }
 
 function startGeo() {
+  state.lastTrack = null;
   if (!('geolocation' in navigator)) {
     $('geo-status').dataset.state = 'bad';
     $('geo-status').textContent = 'GPS non disponible';
@@ -108,6 +135,7 @@ function startGeo() {
       state.lastFix = fix;
       updateGeoStatus(fix.acc);
       refinePending(fix);
+      maybeRecordTrack(fix);
     },
     err => {
       $('geo-status').dataset.state = 'bad';
@@ -122,6 +150,7 @@ function stopGeo() {
   state.watchId = null;
   state.lastFix = null;
   state.pending = [];
+  state.lastTrack = null;
   $('geo-status').dataset.state = 'off';
   $('geo-status').textContent = 'GPS inactif';
 }
@@ -335,8 +364,28 @@ async function renderMap() {
 
   const css = getComputedStyle(document.documentElement);
   const colorFor = mode => css.getPropertyValue(MODES[mode].color.replace('var(', '').replace(')', '')).trim();
+
+  const bounds = [];
+
+  // Trajets d'abord (sous les points) : une polyligne par session, colorée par mode.
+  const start = rangeStart();
+  const track = (await db.getAllTrack()).filter(t => t.ts >= start).sort((a, b) => a.ts - b.ts);
+  const trackBySession = new Map();
+  for (const t of track) {
+    if (!trackBySession.has(t.sessionId)) trackBySession.set(t.sessionId, []);
+    trackBySession.get(t.sessionId).push([t.lat, t.lon]);
+  }
+  for (const [sid, latlngs] of trackBySession) {
+    bounds.push(...latlngs);
+    if (latlngs.length < 2) continue;
+    const mode = sessionMode.get(sid) ?? 'detection';
+    L.polyline(latlngs, { color: colorFor(mode), weight: 3, opacity: 0.5 }).addTo(state.mapLayer);
+  }
+
+  // Puis les mégots par-dessus.
   for (const p of points) {
     const mode = sessionMode.get(p.sessionId) ?? 'detection';
+    bounds.push([p.lat, p.lon]);
     L.circleMarker([p.lat, p.lon], {
       radius: 6, color: '#fcfcfb', weight: 2, fillColor: colorFor(mode), fillOpacity: 0.9,
     })
@@ -346,10 +395,10 @@ async function renderMap() {
       .addTo(state.mapLayer);
   }
 
-  if (points.length > 0) {
-    state.map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lon])).pad(0.2));
+  if (bounds.length > 0) {
+    state.map.fitBounds(L.latLngBounds(bounds).pad(0.2));
   } else {
-    centerOnUser(); // pas de points : on centre sur l'utilisateur
+    centerOnUser(); // rien à afficher : on centre sur l'utilisateur
   }
 }
 
@@ -357,6 +406,36 @@ async function renderMap() {
 function localDay(ts) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function fmtSeconds(s) {
+  if (s < 60) return `${Math.round(s)} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min ${String(Math.round(s % 60)).padStart(2, '0')}`;
+}
+
+// Écarts de temps entre mégots consécutifs, calculés PAR session (l'écart entre
+// deux sessions n'a pas de sens). Retourne moyenne / médiane / max, ou null.
+function gapStats(points) {
+  const bySession = new Map();
+  for (const p of points) {
+    if (!bySession.has(p.sessionId)) bySession.set(p.sessionId, []);
+    bySession.get(p.sessionId).push(p.ts);
+  }
+  const gaps = [];
+  for (const timestamps of bySession.values()) {
+    timestamps.sort((a, b) => a - b);
+    for (let i = 1; i < timestamps.length; i++) gaps.push((timestamps[i] - timestamps[i - 1]) / 1000);
+  }
+  if (gaps.length === 0) return null;
+  gaps.sort((a, b) => a - b);
+  const mid = Math.floor(gaps.length / 2);
+  return {
+    avg: gaps.reduce((a, b) => a + b, 0) / gaps.length,
+    median: gaps.length % 2 ? gaps[mid] : (gaps[mid - 1] + gaps[mid]) / 2,
+    max: gaps[gaps.length - 1],
+    count: gaps.length,
+  };
 }
 
 async function renderStats() {
@@ -375,6 +454,15 @@ async function renderStats() {
   $('tile-detected').textContent = String(detected);
   $('tile-collected').textContent = String(collected);
   $('tile-sessions').textContent = String(sessions.filter(s => s.start >= start).length);
+
+  // Temps entre deux mégots
+  const gaps = gapStats(points);
+  $('gap-avg').textContent = gaps ? fmtSeconds(gaps.avg) : '—';
+  $('gap-median').textContent = gaps ? fmtSeconds(gaps.median) : '—';
+  $('gap-max').textContent = gaps ? fmtSeconds(gaps.max) : '—';
+  $('gap-hint').textContent = gaps
+    ? `sur ${gaps.count} intervalle${gaps.count > 1 ? 's' : ''}`
+    : 'Marque au moins 2 mégots dans une session pour ce calcul.';
 
   // Par heure de la journée (0–23)
   const hours = Array(24).fill(0);

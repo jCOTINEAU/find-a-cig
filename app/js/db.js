@@ -1,6 +1,6 @@
-// IndexedDB — stockage local des sessions et des points.
+// IndexedDB — stockage local des sessions, des points et du trajet GPS.
 const DB_NAME = 'find-a-cig';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -8,12 +8,21 @@ function open() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
+    // Idempotent : gère l'install fraîche comme la migration v1 → v2.
     req.onupgradeneeded = () => {
       const db = req.result;
-      db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
-      const points = db.createObjectStore('points', { keyPath: 'id', autoIncrement: true });
-      points.createIndex('sessionId', 'sessionId');
-      points.createIndex('ts', 'ts');
+      if (!db.objectStoreNames.contains('sessions')) {
+        db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('points')) {
+        const points = db.createObjectStore('points', { keyPath: 'id', autoIncrement: true });
+        points.createIndex('sessionId', 'sessionId');
+        points.createIndex('ts', 'ts');
+      }
+      if (!db.objectStoreNames.contains('track')) {
+        const track = db.createObjectStore('track', { keyPath: 'id', autoIncrement: true });
+        track.createIndex('sessionId', 'sessionId');
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -88,20 +97,31 @@ export async function renameSession(id, name) {
   });
 }
 
-// Supprime une session ET tous ses points (cascade).
+// Supprime une session ET tous ses points et son trajet (cascade).
 export async function deleteSession(id) {
   const db = await open();
   return new Promise((resolve, reject) => {
-    const t = db.transaction(['sessions', 'points'], 'readwrite');
+    const t = db.transaction(['sessions', 'points', 'track'], 'readwrite');
     t.objectStore('sessions').delete(id);
-    const cursor = t.objectStore('points').index('sessionId').openKeyCursor(IDBKeyRange.only(id));
-    cursor.onsuccess = () => {
-      const cur = cursor.result;
-      if (cur) { t.objectStore('points').delete(cur.primaryKey); cur.continue(); }
-    };
+    for (const storeName of ['points', 'track']) {
+      const store = t.objectStore(storeName);
+      const cursor = store.index('sessionId').openKeyCursor(IDBKeyRange.only(id));
+      cursor.onsuccess = () => {
+        const cur = cursor.result;
+        if (cur) { store.delete(cur.primaryKey); cur.continue(); }
+      };
+    }
     t.oncomplete = resolve;
     t.onerror = () => reject(t.error);
   });
+}
+
+export function addTrackPoint(point) {
+  return tx('track', 'readwrite', s => s.add(point));
+}
+
+export function getAllTrack() {
+  return tx('track', 'readonly', s => s.getAll());
 }
 
 export function getAllPoints() {

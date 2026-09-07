@@ -262,6 +262,12 @@ main { flex: 1; overflow-y: auto; }
 }
 .chart-card th { color: var(--text-secondary); font-weight: 600; }
 
+.gap-stats { display: flex; justify-content: space-around; gap: 8px; text-align: center; }
+.gap-item { display: flex; flex-direction: column; gap: 2px; }
+.gap-value { font-size: 24px; font-weight: 600; color: var(--text-primary); }
+.gap-label { font-size: 12px; color: var(--text-secondary); }
+.gap-hint { font-size: 12px; color: var(--text-muted); text-align: center; margin: 8px 0 0; }
+
 .export-row { display: flex; gap: 10px; justify-content: center; }
 
 /* ═══ Historique des sessions ═══ */

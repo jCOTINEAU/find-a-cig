@@ -1,6 +1,6 @@
 // Service worker — cache l'app shell pour l'usage terrain hors-ligne.
 // Les tuiles OSM restent réseau (trop volumineuses à pré-cacher).
-const CACHE = 'find-a-cig-v5'; // à incrémenter à chaque déploiement pour invalider le cache
+const CACHE = 'find-a-cig-v6'; // à incrémenter à chaque déploiement pour invalider le cache
 const ASSETS = [
   './',
   './index.html',
