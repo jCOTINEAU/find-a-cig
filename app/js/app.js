@@ -417,51 +417,47 @@ async function renderMap() {
   }
 }
 
-/* ═══ Carte de la ville (données communautaires agrégées) ═══ */
-function heatColor(t) {
-  // jaune (faible) → rouge (élevé)
-  const h = 55 - 55 * Math.min(1, Math.max(0, t));
-  return `hsl(${h} 85% 50%)`;
-}
-
+/* ═══ Carte de la ville (points communautaires détaillés) ═══ */
 async function renderCityMap() {
   ensureMap();
   state.map.invalidateSize();
   state.mapLayer.clearLayers();
   $('map-banner').hidden = true;
-  $('map-legend').hidden = true;
   const status = $('city-status');
   status.hidden = false;
   status.textContent = 'Chargement de la carte de ville…';
 
-  let cells;
+  let points;
   try {
-    cells = await community.fetchHotspots(state.cityWindow);
+    // Points précis, mais uniquement dans les zones ayant ≥ 2 contributeurs
+    // (seuil côté serveur, protège les autres contributeurs).
+    points = await community.fetchHotspotPoints(state.cityWindow);
   } catch (e) {
     status.textContent = 'Erreur : ' + e.message;
     return;
   }
 
-  if (!cells.length) {
-    status.textContent = 'Aucune zone à afficher — une zone apparaît à partir de 2 contributeurs distincts.';
+  if (!points.length) {
+    status.textContent = 'Aucun point à afficher — une zone apparaît dès 2 contributeurs distincts.';
+    $('map-legend').hidden = true;
     centerOnUser();
     return;
   }
 
-  status.textContent = `${cells.length} zone(s) chaude(s) · affichées dès 2 passages · comptes = « au moins X »`;
-  const maxVal = Math.max(...cells.map(c => c.max_per_pass));
+  const css = getComputedStyle(document.documentElement);
+  const colorFor = mode => css.getPropertyValue(MODES[mode].color.replace('var(', '').replace(')', '')).trim();
+  const modesPresent = new Set(points.map(p => (MODES[p.mode] ? p.mode : 'detection')));
+  $('map-legend').hidden = modesPresent.size < 2;
+
+  status.textContent = `${points.length} mégot(s) partagé(s) · zones à ≥ 2 contributeurs`;
   const bounds = [];
-  for (const c of cells) {
-    bounds.push([c.cell_lat, c.cell_lon]);
-    const radius = 8 + 16 * (c.max_per_pass / maxVal);
-    L.circleMarker([c.cell_lat, c.cell_lon], {
-      radius, color: '#fcfcfb', weight: 2, fillColor: heatColor(c.max_per_pass / maxVal), fillOpacity: 0.75,
+  for (const p of points) {
+    const mode = MODES[p.mode] ? p.mode : 'detection';
+    bounds.push([p.lat, p.lon]);
+    L.circleMarker([p.lat, p.lon], {
+      radius: 6, color: '#fcfcfb', weight: 2, fillColor: colorFor(mode), fillOpacity: 0.85,
     })
-      .bindPopup(
-        `<b>au moins ${c.max_per_pass} mégot(s)</b> par passage<br>`
-        + `${c.passes} passage(s) · médiane ${Math.round(c.median_per_pass)} · `
-        + `min ${c.min_per_pass} – max ${c.max_per_pass}`,
-      )
+      .bindPopup(`${MODES[mode].icon} ${MODES[mode].label} — ${TYPES[p.waste_type]?.label ?? p.waste_type} · ${p.observed_on}`)
       .addTo(state.mapLayer);
   }
   state.map.fitBounds(L.latLngBounds(bounds).pad(0.3));
