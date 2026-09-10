@@ -93,18 +93,27 @@ export async function contribute(points) {
   return { inserted: rows.length };
 }
 
-export async function fetchHotspots(windowDays = 30, gridDeg = 0.001) {
+// bounds : { west, south, east, north } = zone visible de la carte (optionnel).
+function withBounds(params, bounds) {
+  if (bounds) {
+    params.west = bounds.west; params.south = bounds.south;
+    params.east = bounds.east; params.north = bounds.north;
+  }
+  return params;
+}
+
+export async function fetchHotspots(windowDays = 30, bounds = null, gridDeg = 0.001) {
   const c = await getClient();
   if (!c) return [];
-  const { data, error } = await c.rpc('hotspots', { window_days: windowDays, grid_deg: gridDeg });
+  const { data, error } = await c.rpc('hotspots', withBounds({ window_days: windowDays, grid_deg: gridDeg }, bounds));
   if (error) throw error;
   return data || [];
 }
 
-export async function fetchHotspotPoints(windowDays = 30, gridDeg = 0.001) {
+export async function fetchHotspotPoints(windowDays = 30, bounds = null, gridDeg = 0.001) {
   const c = await getClient();
   if (!c) return [];
-  const { data, error } = await c.rpc('hotspot_points', { window_days: windowDays, grid_deg: gridDeg });
+  const { data, error } = await c.rpc('hotspot_points', withBounds({ window_days: windowDays, grid_deg: gridDeg }, bounds));
   if (error) throw error;
   return data || [];
 }

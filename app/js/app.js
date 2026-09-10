@@ -37,6 +37,8 @@ const state = {
   mode: 'detection',   // mode de la session en cours / sélectionné
   mapView: 'mine',     // 'mine' (mes points) | 'city' (carte communautaire)
   cityWindow: 30,      // fenêtre glissante (jours) pour la carte de ville
+  cityFramed: false,   // la carte de ville a-t-elle déjà été cadrée sur les données ?
+  cityRefreshTimer: null,
   map: null,
   mapLayer: null,
   audioCtx: null,
@@ -348,6 +350,13 @@ function ensureMap() {
     },
   });
   new L.Control.Locate({ position: 'topleft' }).addTo(state.map);
+
+  // Auto-update de la carte de ville quand on déplace/zoome (débouncé).
+  state.map.on('moveend', () => {
+    if (state.mapView !== 'city') return;
+    clearTimeout(state.cityRefreshTimer);
+    state.cityRefreshTimer = setTimeout(() => renderCityMap(), 400);
+  });
 }
 
 // Aiguillage carte selon la vue sélectionnée.
@@ -417,50 +426,95 @@ async function renderMap() {
   }
 }
 
-/* ═══ Carte de la ville (points communautaires détaillés) ═══ */
+/* ═══ Carte de la ville (communautaire, viewport-scoped + zoom-aware) ═══ */
+const CITY_POINT_ZOOM = 14; // au-dessus : points précis ; en dessous : agrégat
+
+function heatColor(t) {
+  const h = 55 - 55 * Math.min(1, Math.max(0, t)); // jaune (faible) → rouge (élevé)
+  return `hsl(${h} 85% 50%)`;
+}
+
+function mapBounds() {
+  const b = state.map.getBounds();
+  return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+}
+
+// Recadre une seule fois sur les données au premier affichage de la carte de ville.
+function frameCityOnce(latlngs) {
+  if (state.cityFramed || latlngs.length === 0) return;
+  state.cityFramed = true;
+  state.map.fitBounds(L.latLngBounds(latlngs).pad(0.3));
+}
+
 async function renderCityMap() {
   ensureMap();
   state.map.invalidateSize();
+  const status = $('city-status');
+  status.hidden = false;
+  status.textContent = 'Chargement de la zone…';
+  const bounds = mapBounds();
+
+  try {
+    if (state.map.getZoom() < CITY_POINT_ZOOM) await renderCityCells(bounds);
+    else await renderCityPoints(bounds);
+  } catch (e) {
+    status.textContent = 'Erreur : ' + e.message;
+  }
+}
+
+async function renderCityPoints(bounds) {
+  const points = await community.fetchHotspotPoints(state.cityWindow, bounds);
   state.mapLayer.clearLayers();
   $('map-banner').hidden = true;
   const status = $('city-status');
-  status.hidden = false;
-  status.textContent = 'Chargement de la carte de ville…';
-
-  let points;
-  try {
-    // Points précis, mais uniquement dans les zones ayant ≥ 2 contributeurs
-    // (seuil côté serveur, protège les autres contributeurs).
-    points = await community.fetchHotspotPoints(state.cityWindow);
-  } catch (e) {
-    status.textContent = 'Erreur : ' + e.message;
-    return;
-  }
-
   if (!points.length) {
-    status.textContent = 'Aucun point à afficher — une zone apparaît dès 2 contributeurs distincts.';
     $('map-legend').hidden = true;
-    centerOnUser();
+    status.textContent = 'Aucun point dans cette zone (zone visible dès 2 contributeurs).';
     return;
   }
-
   const css = getComputedStyle(document.documentElement);
   const colorFor = mode => css.getPropertyValue(MODES[mode].color.replace('var(', '').replace(')', '')).trim();
-  const modesPresent = new Set(points.map(p => (MODES[p.mode] ? p.mode : 'detection')));
-  $('map-legend').hidden = modesPresent.size < 2;
-
-  status.textContent = `${points.length} mégot(s) partagé(s) · zones à ≥ 2 contributeurs`;
-  const bounds = [];
+  $('map-legend').hidden = new Set(points.map(p => (MODES[p.mode] ? p.mode : 'detection'))).size < 2;
+  status.textContent = `${points.length} mégot(s) dans la zone`;
+  const latlngs = [];
   for (const p of points) {
     const mode = MODES[p.mode] ? p.mode : 'detection';
-    bounds.push([p.lat, p.lon]);
+    latlngs.push([p.lat, p.lon]);
     L.circleMarker([p.lat, p.lon], {
       radius: 6, color: '#fcfcfb', weight: 2, fillColor: colorFor(mode), fillOpacity: 0.85,
     })
       .bindPopup(`${MODES[mode].icon} ${MODES[mode].label} — ${TYPES[p.waste_type]?.label ?? p.waste_type} · ${p.observed_on}`)
       .addTo(state.mapLayer);
   }
-  state.map.fitBounds(L.latLngBounds(bounds).pad(0.3));
+  frameCityOnce(latlngs);
+}
+
+async function renderCityCells(bounds) {
+  const cells = await community.fetchHotspots(state.cityWindow, bounds);
+  state.mapLayer.clearLayers();
+  $('map-banner').hidden = true;
+  $('map-legend').hidden = true;
+  const status = $('city-status');
+  if (!cells.length) {
+    status.textContent = 'Aucune zone chaude ici — zoome, ou une zone apparaît dès 2 contributeurs.';
+    return;
+  }
+  status.textContent = `${cells.length} zone(s) chaude(s) · zoome pour le détail · « au moins X »`;
+  const maxVal = Math.max(...cells.map(c => c.max_per_pass));
+  const latlngs = [];
+  for (const c of cells) {
+    latlngs.push([c.cell_lat, c.cell_lon]);
+    L.circleMarker([c.cell_lat, c.cell_lon], {
+      radius: 8 + 16 * (c.max_per_pass / maxVal), color: '#fcfcfb', weight: 2,
+      fillColor: heatColor(c.max_per_pass / maxVal), fillOpacity: 0.75,
+    })
+      .bindPopup(
+        `<b>au moins ${c.max_per_pass} mégot(s)</b> par passage<br>`
+        + `${c.passes} passage(s) · médiane ${Math.round(c.median_per_pass)} · min ${c.min_per_pass} – max ${c.max_per_pass}`,
+      )
+      .addTo(state.mapLayer);
+  }
+  frameCityOnce(latlngs);
 }
 
 /* ═══ Contribution ═══ */
@@ -785,6 +839,7 @@ for (const opt of document.querySelectorAll('.seg-opt')) {
     state.mapView = opt.dataset.view;
     $('city-controls').hidden = state.mapView !== 'city';
     $('consent-panel').hidden = true;
+    if (state.mapView === 'city') state.cityFramed = false; // recadrer à l'entrée
     renderMapPanel();
   });
 }
@@ -793,6 +848,7 @@ for (const wchip of document.querySelectorAll('.wchip')) {
     document.querySelector('.wchip.selected')?.classList.remove('selected');
     wchip.classList.add('selected');
     state.cityWindow = Number(wchip.dataset.days);
+    state.cityFramed = false; // recadrer sur les données de la nouvelle fenêtre
     if (state.mapView === 'city') renderCityMap();
   });
 }
