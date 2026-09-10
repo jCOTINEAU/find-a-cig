@@ -62,6 +62,38 @@
 
     <!-- ═══ Onglet Carte ═══ -->
     <section id="panel-map" class="panel">
+      <div class="map-toolbar">
+        <div class="seg" id="mapview-seg" hidden>
+          <button id="mapview-mine" class="seg-opt selected" data-view="mine">📍 Mes points</button>
+          <button id="mapview-city" class="seg-opt" data-view="city">🌍 Carte de la ville</button>
+        </div>
+        <div id="city-controls" class="city-controls" hidden>
+          <div class="window-chips">
+            <button class="wchip" data-days="7">7 j</button>
+            <button class="wchip selected" data-days="30">30 j</button>
+            <button class="wchip" data-days="90">90 j</button>
+            <button class="wchip" data-days="3650">Tout</button>
+          </div>
+          <button id="btn-contribute" class="btn btn-ghost">⬆ Contribuer mes données</button>
+        </div>
+      </div>
+      <div id="city-status" class="city-status" hidden></div>
+      <div id="consent-panel" class="consent-panel" hidden>
+        <p class="consent-title">Contribuer à la carte de ta ville</p>
+        <p>En confirmant, tu envoies — de façon anonyme et opt-in — <b>uniquement</b> :</p>
+        <ul>
+          <li>la <b>position précise</b> de chaque mégot,</li>
+          <li>sa <b>date au jour près</b> (jamais l'heure),</li>
+          <li>le type et le mode (détection/collecte).</li>
+        </ul>
+        <p>Jamais envoyés : ton <b>trajet</b>, ton <b>identité</b>, l'heure exacte. Les points
+          d'extrémité de session (près de chez toi) sont retirés, et une zone n'apparaît
+          publiquement qu'à partir de <b>2 contributeurs</b> distincts.</p>
+        <div class="consent-actions">
+          <button id="consent-cancel" class="btn btn-ghost">Annuler</button>
+          <button id="consent-confirm" class="btn btn-primary">Confirmer et envoyer</button>
+        </div>
+      </div>
       <div id="map-banner" class="map-banner" hidden></div>
       <div id="map-legend" class="map-legend" hidden>
         <span class="legend-key"><span class="legend-dot" data-mode="detection"></span>Détection</span>

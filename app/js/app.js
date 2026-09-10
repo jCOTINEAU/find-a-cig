@@ -1,6 +1,7 @@
 import * as db from './db.js';
 import { PokeBall, supported as bleSupported } from './ball.js';
 import { renderBarChart, renderTable } from './charts.js';
+import * as community from './community.js';
 
 // Types de déchets — extensible : ajouter une entrée + un mapping bouton.
 const TYPES = {
@@ -34,6 +35,8 @@ const state = {
   wakeLock: null,
   range: 'all',        // today | 7 | 30 | all
   mode: 'detection',   // mode de la session en cours / sélectionné
+  mapView: 'mine',     // 'mine' (mes points) | 'city' (carte communautaire)
+  cityWindow: 30,      // fenêtre glissante (jours) pour la carte de ville
   map: null,
   mapLayer: null,
   audioCtx: null,
@@ -327,26 +330,38 @@ function centerOnUser(zoom = 17) {
   }
 }
 
-async function renderMap() {
-  if (!state.map) {
-    state.map = L.map('map', { zoomControl: true }).setView([46.6, 2.4], 5); // France en attendant le fix
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(state.map);
-    state.mapLayer = L.layerGroup().addTo(state.map);
-    L.Control.Locate = L.Control.extend({
-      onAdd() {
-        const btn = L.DomUtil.create('button', 'leaflet-bar locate-btn');
-        btn.textContent = '📍';
-        btn.title = 'Centrer sur ma position';
-        L.DomEvent.on(btn, 'click', e => { L.DomEvent.stop(e); centerOnUser(); });
-        return btn;
-      },
-    });
-    new L.Control.Locate({ position: 'topleft' }).addTo(state.map);
-  }
+function ensureMap() {
+  if (state.map) return;
+  state.map = L.map('map', { zoomControl: true }).setView([46.6, 2.4], 5); // France en attendant le fix
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(state.map);
+  state.mapLayer = L.layerGroup().addTo(state.map);
+  L.Control.Locate = L.Control.extend({
+    onAdd() {
+      const btn = L.DomUtil.create('button', 'leaflet-bar locate-btn');
+      btn.textContent = '📍';
+      btn.title = 'Centrer sur ma position';
+      L.DomEvent.on(btn, 'click', e => { L.DomEvent.stop(e); centerOnUser(); });
+      return btn;
+    },
+  });
+  new L.Control.Locate({ position: 'topleft' }).addTo(state.map);
+}
+
+// Aiguillage carte selon la vue sélectionnée.
+function renderMapPanel() {
+  ensureMap();
   state.map.invalidateSize();
+  if (state.mapView === 'city') renderCityMap();
+  else renderMap();
+}
+
+async function renderMap() {
+  ensureMap();
+  state.map.invalidateSize();
+  $('city-status').hidden = true;
 
   state.mapLayer.clearLayers();
   const all = await filteredPoints();
@@ -399,6 +414,91 @@ async function renderMap() {
     state.map.fitBounds(L.latLngBounds(bounds).pad(0.2));
   } else {
     centerOnUser(); // rien à afficher : on centre sur l'utilisateur
+  }
+}
+
+/* ═══ Carte de la ville (données communautaires agrégées) ═══ */
+function heatColor(t) {
+  // jaune (faible) → rouge (élevé)
+  const h = 55 - 55 * Math.min(1, Math.max(0, t));
+  return `hsl(${h} 85% 50%)`;
+}
+
+async function renderCityMap() {
+  ensureMap();
+  state.map.invalidateSize();
+  state.mapLayer.clearLayers();
+  $('map-banner').hidden = true;
+  $('map-legend').hidden = true;
+  const status = $('city-status');
+  status.hidden = false;
+  status.textContent = 'Chargement de la carte de ville…';
+
+  let cells;
+  try {
+    cells = await community.fetchHotspots(state.cityWindow);
+  } catch (e) {
+    status.textContent = 'Erreur : ' + e.message;
+    return;
+  }
+
+  if (!cells.length) {
+    status.textContent = 'Aucune zone à afficher — une zone apparaît à partir de 2 contributeurs distincts.';
+    centerOnUser();
+    return;
+  }
+
+  status.textContent = `${cells.length} zone(s) chaude(s) · affichées dès 2 passages · comptes = « au moins X »`;
+  const maxVal = Math.max(...cells.map(c => c.max_per_pass));
+  const bounds = [];
+  for (const c of cells) {
+    bounds.push([c.cell_lat, c.cell_lon]);
+    const radius = 8 + 16 * (c.max_per_pass / maxVal);
+    L.circleMarker([c.cell_lat, c.cell_lon], {
+      radius, color: '#fcfcfb', weight: 2, fillColor: heatColor(c.max_per_pass / maxVal), fillOpacity: 0.75,
+    })
+      .bindPopup(
+        `<b>au moins ${c.max_per_pass} mégot(s)</b> par passage<br>`
+        + `${c.passes} passage(s) · médiane ${Math.round(c.median_per_pass)} · `
+        + `min ${c.min_per_pass} – max ${c.max_per_pass}`,
+      )
+      .addTo(state.mapLayer);
+  }
+  state.map.fitBounds(L.latLngBounds(bounds).pad(0.3));
+}
+
+/* ═══ Contribution ═══ */
+const CONTRIBUTED_KEY = 'fac_contributed_sessions';
+function contributedSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(CONTRIBUTED_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+function markContributed(ids) {
+  const set = contributedSet();
+  for (const id of ids) set.add(id);
+  localStorage.setItem(CONTRIBUTED_KEY, JSON.stringify([...set]));
+}
+
+async function doContribute() {
+  const status = $('city-status');
+  status.hidden = false;
+  status.textContent = 'Envoi…';
+  const already = contributedSet();
+  const points = (await db.getAllPoints()).filter(p => p.lat != null && !already.has(p.sessionId));
+  const modeMap = await sessionModeMap();
+  const enriched = points.map(p => ({ ...p, mode: modeMap.get(p.sessionId) ?? 'detection' }));
+  const sessionIds = [...new Set(enriched.map(p => p.sessionId))];
+  if (enriched.length === 0) {
+    status.textContent = 'Rien de nouveau à contribuer (tout est déjà envoyé).';
+    return;
+  }
+  try {
+    const { inserted } = await community.contribute(enriched);
+    markContributed(sessionIds);
+    status.textContent = `✅ ${inserted} point(s) envoyé(s) depuis ${sessionIds.length} session(s). Merci !`;
+    if (state.mapView === 'city') renderCityMap();
+  } catch (e) {
+    status.textContent = 'Échec de l\'envoi : ' + e.message;
   }
 }
 
@@ -631,7 +731,7 @@ function showPanel(name) {
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.panel === name);
   for (const panel of document.querySelectorAll('.panel')) panel.classList.toggle('active', panel.id === `panel-${name}`);
   $('filter-row').hidden = name === 'session' || name === 'sessions';
-  if (name === 'map') renderMap();
+  if (name === 'map') renderMapPanel();
   if (name === 'stats') renderStats();
   if (name === 'sessions') renderSessions();
 }
@@ -680,6 +780,38 @@ for (const chip of document.querySelectorAll('.chip')) {
     if ($('panel-stats').classList.contains('active')) renderStats();
   });
 }
+
+// ─ Carte de la ville (communautaire) : n'apparaît que si Supabase est configuré ─
+for (const opt of document.querySelectorAll('.seg-opt')) {
+  opt.addEventListener('click', () => {
+    document.querySelector('.seg-opt.selected')?.classList.remove('selected');
+    opt.classList.add('selected');
+    state.mapView = opt.dataset.view;
+    $('city-controls').hidden = state.mapView !== 'city';
+    $('consent-panel').hidden = true;
+    renderMapPanel();
+  });
+}
+for (const wchip of document.querySelectorAll('.wchip')) {
+  wchip.addEventListener('click', () => {
+    document.querySelector('.wchip.selected')?.classList.remove('selected');
+    wchip.classList.add('selected');
+    state.cityWindow = Number(wchip.dataset.days);
+    if (state.mapView === 'city') renderCityMap();
+  });
+}
+$('btn-contribute').addEventListener('click', () => {
+  $('consent-panel').hidden = !$('consent-panel').hidden;
+});
+$('consent-cancel').addEventListener('click', () => { $('consent-panel').hidden = true; });
+$('consent-confirm').addEventListener('click', () => {
+  $('consent-panel').hidden = true;
+  doContribute();
+});
+
+community.isConfigured().then(ok => {
+  $('mapview-seg').hidden = !ok;
+});
 
 if (!bleSupported) setBallStatus('off', 'Web Bluetooth indisponible (Chrome/Edge requis)');
 

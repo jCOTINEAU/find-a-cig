@@ -1,6 +1,6 @@
 // Service worker — cache l'app shell pour l'usage terrain hors-ligne.
 // Les tuiles OSM restent réseau (trop volumineuses à pré-cacher).
-const CACHE = 'find-a-cig-v7'; // à incrémenter à chaque déploiement pour invalider le cache
+const CACHE = 'find-a-cig-v8'; // à incrémenter à chaque déploiement pour invalider le cache
 const ASSETS = [
   './',
   './index.html',
@@ -8,12 +8,15 @@ const ASSETS = [
   './style.css',
   './manifest.webmanifest',
   './icons/icon.svg',
+  './config.js',
   './js/app.js',
   './js/db.js',
   './js/ball.js',
   './js/charts.js',
+  './js/community.js',
   './vendor/leaflet/leaflet.js',
   './vendor/leaflet/leaflet.css',
+  './vendor/supabase/supabase.js',
 ];
 
 self.addEventListener('install', e => {
