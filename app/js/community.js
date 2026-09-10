@@ -5,18 +5,21 @@ import { createClient } from '../vendor/supabase/supabase.js';
 
 let client = null;
 let clientPromise = null;
+let configPromise = null;
 
 async function loadConfig() {
-  // config.local.js (dev, gitignoré) surcharge config.js (prod, committé).
-  for (const path of ['../config.local.js', '../config.js']) {
-    try {
-      const cfg = await import(path);
-      if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY) {
-        return { url: cfg.SUPABASE_URL, key: cfg.SUPABASE_ANON_KEY };
-      }
-    } catch { /* fichier absent : on passe au suivant */ }
-  }
-  return null;
+  if (configPromise) return configPromise;
+  configPromise = (async () => {
+    // config.local.js (dev, gitignoré) surcharge config.js (prod, committé).
+    for (const path of ['../config.local.js', '../config.js']) {
+      try {
+        const cfg = await import(path);
+        return { url: cfg.SUPABASE_URL || '', key: cfg.SUPABASE_ANON_KEY || '', env: cfg.ENV || '' };
+      } catch { /* fichier absent : on passe au suivant */ }
+    }
+    return { url: '', key: '', env: '' };
+  })();
+  return configPromise;
 }
 
 async function getClient() {
@@ -24,7 +27,7 @@ async function getClient() {
   if (!clientPromise) {
     clientPromise = (async () => {
       const cfg = await loadConfig();
-      if (!cfg) return null;
+      if (!cfg.url || !cfg.key) return null;
       client = createClient(cfg.url, cfg.key, {
         auth: { persistSession: true, autoRefreshToken: true },
       });
@@ -36,6 +39,11 @@ async function getClient() {
 
 export async function isConfigured() {
   return !!(await getClient());
+}
+
+// Environnement de déploiement : 'prod' | 'dev' | 'local' | '' (non configuré).
+export async function getEnv() {
+  return (await loadConfig()).env;
 }
 
 async function ensureAuth(c) {

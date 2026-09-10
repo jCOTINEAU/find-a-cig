@@ -865,6 +865,16 @@ community.isConfigured().then(ok => {
   $('mapview-seg').hidden = !ok;
 });
 
+// Badge d'environnement (DEV / LOCAL visibles ; prod = pas de badge).
+community.getEnv().then(env => {
+  if (env === 'dev' || env === 'local') {
+    const badge = $('env-badge');
+    badge.dataset.env = env;
+    badge.textContent = env.toUpperCase();
+    badge.hidden = false;
+  }
+});
+
 if (!bleSupported) setBallStatus('off', 'Web Bluetooth indisponible (Chrome/Edge requis)');
 
 // Easter egg : 5 taps sur le titre → page cachée de debug BLE.

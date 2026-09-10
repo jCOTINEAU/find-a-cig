@@ -27,8 +27,28 @@ jobs:
       # Actions épinglées par SHA de commit (supply chain)
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      # Double déploiement : prod à la racine, dev sous /dev/.
+      # La config Supabase de chaque environnement est injectée depuis les
+      # variables de repo (clé anon = publique par design). Vide = communautaire
+      # désactivé (l'app reste 100 % locale).
+      - name: Assemble prod (racine) + dev (/dev/)
+        env:
+          URL_PROD: ${{ vars.SUPABASE_URL_PROD }}
+          KEY_PROD: ${{ vars.SUPABASE_ANON_KEY_PROD }}
+          URL_DEV: ${{ vars.SUPABASE_URL_DEV }}
+          KEY_DEV: ${{ vars.SUPABASE_ANON_KEY_DEV }}
+        run: |
+          set -eu
+          mkdir -p _site
+          cp -r app/. _site/
+          printf "export const SUPABASE_URL = '%s';\nexport const SUPABASE_ANON_KEY = '%s';\nexport const ENV = 'prod';\n" "$URL_PROD" "$KEY_PROD" > _site/config.js
+          mkdir -p _site/dev
+          cp -r app/. _site/dev/
+          printf "export const SUPABASE_URL = '%s';\nexport const SUPABASE_ANON_KEY = '%s';\nexport const ENV = 'dev';\n" "$URL_DEV" "$KEY_DEV" > _site/dev/config.js
+
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: app
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
