@@ -1,5 +1,5 @@
 import * as db from './db.js';
-import { PokeBall, supported as bleSupported } from './ball.js';
+import { createBall, supported as bleSupported } from './ball.js';
 import { renderBarChart, renderTable } from './charts.js';
 import * as community from './community.js';
 import * as geo from './geo.js';
@@ -58,7 +58,7 @@ function distanceM(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-const ball = new PokeBall();
+const ball = createBall();
 
 /* ═══ Feedback (visuel + son + vibration du téléphone) ═══ */
 function beep() {
