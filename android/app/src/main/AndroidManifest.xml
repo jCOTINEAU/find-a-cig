@@ -38,4 +38,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- GPS de fond : le plugin background-geolocation fournit déjà le service de
+         premier plan + FOREGROUND_SERVICE_LOCATION + POST_NOTIFICATIONS. On ajoute
+         la localisation en arrière-plan pour permettre « Autoriser tout le temps ». -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 </manifest>

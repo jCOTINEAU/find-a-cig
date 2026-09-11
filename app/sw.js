@@ -1,6 +1,6 @@
 // Service worker — cache l'app shell pour l'usage terrain hors-ligne.
 // Les tuiles OSM restent réseau (trop volumineuses à pré-cacher).
-const CACHE = 'clean-them-all-v12'; // à incrémenter à chaque déploiement pour invalider le cache
+const CACHE = 'clean-them-all-v13'; // à incrémenter à chaque déploiement pour invalider le cache
 const ASSETS = [
   './',
   './index.html',
@@ -14,9 +14,11 @@ const ASSETS = [
   './js/ball.js',
   './js/charts.js',
   './js/community.js',
+  './js/geo.js',
   './vendor/leaflet/leaflet.js',
   './vendor/leaflet/leaflet.css',
   './vendor/supabase/supabase.js',
+  './vendor/native/native.js',
 ];
 
 self.addEventListener('install', e => {

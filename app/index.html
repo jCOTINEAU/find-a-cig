@@ -157,6 +157,8 @@
   <div id="tooltip" class="viz-tooltip" hidden></div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <!-- Plugins natifs Capacitor (inerte en PWA ; actif dans l'APK) -->
+  <script src="vendor/native/native.js"></script>
   <script type="module" src="js/app.js"></script>
   <script>
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');

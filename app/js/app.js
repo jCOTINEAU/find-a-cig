@@ -2,6 +2,7 @@ import * as db from './db.js';
 import { PokeBall, supported as bleSupported } from './ball.js';
 import { renderBarChart, renderTable } from './charts.js';
 import * as community from './community.js';
+import * as geo from './geo.js';
 
 // Types de déchets — extensible : ajouter une entrée + un mapping bouton.
 const TYPES = {
@@ -31,7 +32,7 @@ const state = {
   sessionCount: 0,
   lastPointId: null,
   lastFix: null,       // { lat, lon, acc, ts }
-  watchId: null,
+  watchHandle: null,
   wakeLock: null,
   range: 'all',        // today | 7 | 30 | all
   mode: 'detection',   // mode de la session en cours / sélectionné
@@ -122,21 +123,11 @@ function refinePending(fix) {
   }
 }
 
-function startGeo() {
+async function startGeo() {
   state.lastTrack = null;
-  if (!('geolocation' in navigator)) {
-    $('geo-status').dataset.state = 'bad';
-    $('geo-status').textContent = 'GPS non disponible';
-    return;
-  }
-  state.watchId = navigator.geolocation.watchPosition(
-    pos => {
-      const fix = {
-        lat: pos.coords.latitude,
-        lon: pos.coords.longitude,
-        acc: pos.coords.accuracy,
-        ts: pos.timestamp,
-      };
+  // geo.watch : natif → foreground service (GPS écran verrouillé) ; web → watchPosition.
+  state.watchHandle = await geo.watch(
+    fix => {                       // fix normalisé { lat, lon, acc, ts }
       state.lastFix = fix;
       updateGeoStatus(fix.acc);
       refinePending(fix);
@@ -144,15 +135,18 @@ function startGeo() {
     },
     err => {
       $('geo-status').dataset.state = 'bad';
-      $('geo-status').textContent = `GPS : ${err.message}`;
+      $('geo-status').textContent = `GPS : ${err.message || err}`;
     },
-    { enableHighAccuracy: true, maximumAge: 0 }, // jamais de position en cache
   );
+  if (!state.watchHandle) {
+    $('geo-status').dataset.state = 'bad';
+    $('geo-status').textContent = 'GPS non disponible';
+  }
 }
 
 function stopGeo() {
-  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
-  state.watchId = null;
+  geo.clearWatch(state.watchHandle);
+  state.watchHandle = null;
   state.lastFix = null;
   state.pending = [];
   state.lastTrack = null;
@@ -225,18 +219,14 @@ async function mark(type = 'megot') {
     $('session-log').textContent = `${MODES[state.mode].verb} à ±${Math.round(fix.acc)} m`;
     // Affine ce point si un meilleur fix arrive dans les secondes qui suivent.
     state.pending.push({ id, until: Date.now() + REFINE_MS, bestAcc: fix.acc });
-  } else if ('geolocation' in navigator) {
+  } else {
     // Aucun fix récent : one-shot pour compléter le point a posteriori.
     $('session-log').textContent = '⏳ Marqué — position GPS en cours…';
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        await db.updatePoint(id, {
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          acc: pos.coords.accuracy,
-        });
+    geo.getCurrent(
+      async fix => {
+        await db.updatePoint(id, { lat: fix.lat, lon: fix.lon, acc: fix.acc });
         if (state.lastPointId === id) {
-          $('session-log').textContent = `Position rattrapée à ±${Math.round(pos.coords.accuracy)} m`;
+          $('session-log').textContent = `Position rattrapée à ±${Math.round(fix.acc)} m`;
         }
       },
       () => {
@@ -244,7 +234,6 @@ async function mark(type = 'megot') {
           $('session-log').textContent = '⚠️ Marqué sans position (GPS indisponible)';
         }
       },
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
     );
   }
 }
@@ -324,10 +313,10 @@ function centerOnUser(zoom = 17) {
   if (state.lastFix && Date.now() - state.lastFix.ts < 30_000) {
     place(state.lastFix.lat, state.lastFix.lon);
   } else {
-    navigator.geolocation?.getCurrentPosition(
-      pos => place(pos.coords.latitude, pos.coords.longitude),
+    geo.getCurrent(
+      fix => place(fix.lat, fix.lon),
       () => {}, // refus/échec : on garde la vue courante
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+      { timeout: 10_000, maximumAge: 60_000 },
     );
   }
 }

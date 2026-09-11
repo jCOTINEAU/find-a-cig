@@ -5,10 +5,12 @@
   "description": "Clean Them All — compteur de déchets géolocalisé participatif (PWA + wrapper Android Capacitor).",
   "license": "MIT",
   "devDependencies": {
-    "@capacitor/cli": "^6.2.0"
+    "@capacitor/cli": "^6.2.0",
+    "esbuild": "^0.28.2"
   },
   "dependencies": {
-    "@capacitor/core": "^6.2.0",
-    "@capacitor/android": "^6.2.0"
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
   }
 }
