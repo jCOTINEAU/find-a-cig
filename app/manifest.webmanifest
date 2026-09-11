@@ -1,7 +1,7 @@
 {
-  "name": "Find a Cig — compteur de déchets",
-  "short_name": "Find a Cig",
-  "description": "Cartographie des mégots au sol avec la Poké Ball Plus comme compteur.",
+  "name": "Clean Them All — compteur de déchets",
+  "short_name": "Clean Them All",
+  "description": "Cartographie participative des déchets au sol : détection, collecte, et carte de ville.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

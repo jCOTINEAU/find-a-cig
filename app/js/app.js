@@ -463,7 +463,9 @@ async function renderCityMap() {
 }
 
 async function renderCityPoints(bounds) {
-  const points = await community.fetchHotspotPoints(state.cityWindow, bounds);
+  // Martingale : on affiche la densité TYPIQUE par passage (échantillon), pas la
+  // somme de tous les passages — une rue très fréquentée n'est pas sur-pénalisée.
+  const points = await community.fetchSampledPoints(state.cityWindow, bounds);
   state.mapLayer.clearLayers();
   $('map-banner').hidden = true;
   const status = $('city-status');
@@ -475,7 +477,7 @@ async function renderCityPoints(bounds) {
   const css = getComputedStyle(document.documentElement);
   const colorFor = mode => css.getPropertyValue(MODES[mode].color.replace('var(', '').replace(')', '')).trim();
   $('map-legend').hidden = new Set(points.map(p => (MODES[p.mode] ? p.mode : 'detection'))).size < 2;
-  status.textContent = `${points.length} mégot(s) dans la zone`;
+  status.textContent = `${points.length} mégot(s) — densité typique par passage`;
   const latlngs = [];
   for (const p of points) {
     const mode = MODES[p.mode] ? p.mode : 'detection';

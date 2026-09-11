@@ -125,3 +125,13 @@ export async function fetchHotspotPoints(windowDays = 30, bounds = null, gridDeg
   if (error) throw error;
   return data || [];
 }
+
+// « Martingale » : par cellule, la moyenne de points/passage tirée aléatoirement
+// parmi les points réels — dé-biaise les rues sur-fréquentées.
+export async function fetchSampledPoints(windowDays = 30, bounds = null, gridDeg = 0.001) {
+  const c = await getClient();
+  if (!c) return [];
+  const { data, error } = await c.rpc('hotspot_sampled_points', withBounds({ window_days: windowDays, grid_deg: gridDeg }, bounds));
+  if (error) throw error;
+  return data || [];
+}

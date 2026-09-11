@@ -146,3 +146,66 @@ as $$
 $$;
 
 grant execute on function public.hotspot_points(int, double precision, double precision, double precision, double precision, double precision, int) to anon, authenticated;
+
+-- ── Points ÉCHANTILLONNÉS (« martingale ») ─────────────────────────────────
+-- Afficher TOUS les points sur-représente les rues très fréquentées : une rue
+-- parcourue par 10 personnes paraîtrait 10× plus sale. À la place, on affiche,
+-- par cellule, le nombre MOYEN de points par passage (moyenne sur la fenêtre
+-- récente), tiré aléatoirement parmi les points réels de tous les contributeurs.
+-- Résultat : la densité affichée ≈ ce qu'un passage typique voit, dé-biaisée.
+create or replace function public.hotspot_sampled_points(
+  window_days int default 30,
+  grid_deg double precision default 0.001,
+  west double precision default -180,
+  south double precision default -90,
+  east double precision default 180,
+  north double precision default 90,
+  max_rows int default 3000
+)
+returns table (
+  lat double precision,
+  lon double precision,
+  waste_type text,
+  mode text,
+  observed_on date
+)
+language sql
+security definer
+set search_path = public
+as $$
+  with in_view as (
+    select
+      o.lat, o.lon, o.waste_type, o.mode, o.observed_on, o.session_id,
+      round((o.lat / grid_deg))::double precision * grid_deg as clat,
+      round((o.lon / grid_deg))::double precision * grid_deg as clon
+    from public.observations o
+    where o.observed_on >= current_date - greatest(window_days, 0)
+      and o.geog && ST_MakeEnvelope(west, south, east, north, 4326)::geography
+  ),
+  cell_target as (
+    -- passes = nb de contributeurs (sessions) ; target = moyenne points/passage.
+    select clat, clon, waste_type,
+      count(distinct session_id) as passes,
+      greatest(1, round(count(*)::numeric / count(distinct session_id)))::int as target
+    from in_view
+    group by clat, clon, waste_type
+    having count(distinct session_id) >= 2   -- k-anonymat
+  ),
+  ranked as (
+    select v.lat, v.lon, v.waste_type, v.mode, v.observed_on, v.clat, v.clon,
+      row_number() over (
+        partition by v.clat, v.clon, v.waste_type order by random()
+      ) as rn
+    from in_view v
+    join cell_target t
+      on t.clat = v.clat and t.clon = v.clon and t.waste_type = v.waste_type
+  )
+  select r.lat, r.lon, r.waste_type, r.mode, r.observed_on
+  from ranked r
+  join cell_target t
+    on t.clat = r.clat and t.clon = r.clon and t.waste_type = r.waste_type
+  where r.rn <= t.target
+  limit greatest(max_rows, 0);
+$$;
+
+grant execute on function public.hotspot_sampled_points(int, double precision, double precision, double precision, double precision, double precision, int) to anon, authenticated;
