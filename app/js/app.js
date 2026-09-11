@@ -125,19 +125,37 @@ function refinePending(fix) {
 
 async function startGeo() {
   state.lastTrack = null;
-  // geo.watch : natif → foreground service (GPS écran verrouillé) ; web → watchPosition.
-  state.watchHandle = await geo.watch(
-    fix => {                       // fix normalisé { lat, lon, acc, ts }
-      state.lastFix = fix;
-      updateGeoStatus(fix.acc);
-      refinePending(fix);
-      maybeRecordTrack(fix);
-    },
-    err => {
-      $('geo-status').dataset.state = 'bad';
-      $('geo-status').textContent = `GPS : ${err.message || err}`;
-    },
+
+  // Retour visuel immédiat : le watcher (surtout natif) peut mettre 10-30 s à
+  // livrer son premier fix (cold start GPS). On affiche « Acquisition… » et on
+  // demande une position ponctuelle tout de suite pour ne pas paraître inactif.
+  $('geo-status').dataset.state = 'off';
+  $('geo-status').textContent = '⏳ Acquisition GPS…';
+  geo.getCurrent(
+    fix => { if (!state.lastFix) { state.lastFix = fix; updateGeoStatus(fix.acc); } },
+    () => {},
+    { maximumAge: 5000 },
   );
+
+  // geo.watch : natif → foreground service (GPS écran verrouillé) ; web → watchPosition.
+  try {
+    state.watchHandle = await geo.watch(
+      fix => {                       // fix normalisé { lat, lon, acc, ts }
+        state.lastFix = fix;
+        updateGeoStatus(fix.acc);
+        refinePending(fix);
+        maybeRecordTrack(fix);
+      },
+      err => {
+        $('geo-status').dataset.state = 'bad';
+        $('geo-status').textContent = `GPS : ${err.message || err}`;
+      },
+    );
+  } catch (e) {
+    $('geo-status').dataset.state = 'bad';
+    $('geo-status').textContent = `GPS : ${e.message || e}`;
+    return;
+  }
   if (!state.watchHandle) {
     $('geo-status').dataset.state = 'bad';
     $('geo-status').textContent = 'GPS non disponible';
