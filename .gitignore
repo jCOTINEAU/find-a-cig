@@ -6,3 +6,11 @@ __pycache__/
 
 # Config Supabase locale (clés de dev — jamais committées)
 app/config.local.js
+
+# Node / Capacitor
+node_modules/
+
+# Assets web copiés dans le projet natif par `cap sync` (régénérés en CI)
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
