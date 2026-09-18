@@ -75,11 +75,24 @@ function beep() {
   } catch { /* audio indisponible : pas bloquant */ }
 }
 
+// Affiche le compteur partout (écran normal + plein écran).
+function renderCount() {
+  const n = String(state.sessionCount);
+  $('session-count').textContent = n;
+  $('fs-count').textContent = n;
+}
+
 function feedback() {
   beep();
   navigator.vibrate?.(80);
   $('session-count').classList.remove('flash');
   requestAnimationFrame(() => $('session-count').classList.add('flash'));
+  // Flash de l'overlay plein écran s'il est ouvert.
+  if (!$('fs-mark').hidden) {
+    const tap = $('fs-tap');
+    tap.classList.remove('hit');
+    requestAnimationFrame(() => tap.classList.add('hit'));
+  }
 }
 
 /* ═══ Géolocalisation ═══ */
@@ -180,18 +193,38 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.sessionId) acquireWakeLock();
 });
 
+/* ═══ Mode plein écran (compter à l'aveugle) ═══ */
+function openFullscreen() {
+  if (state.sessionId === null) return;
+  const overlay = $('fs-mark');
+  overlay.dataset.mode = state.mode;
+  $('fs-icon').textContent = MODES[state.mode].icon;
+  $('fs-label').textContent = `appuie n'importe où = +1 · ✕ pour sortir`;
+  renderCount();
+  overlay.hidden = false;
+  // Immersif (masque les barres système en PWA ; l'APK est déjà plein écran).
+  // Le ?. peut renvoyer undefined (API absente) → on protège le .catch.
+  try { document.documentElement.requestFullscreen?.()?.catch(() => {}); } catch { /* non supporté */ }
+}
+
+function closeFullscreen() {
+  $('fs-mark').hidden = true;
+  try { if (document.fullscreenElement) document.exitFullscreen?.()?.catch(() => {}); } catch { /* non supporté */ }
+}
+
 /* ═══ Session ═══ */
 async function toggleSession() {
   if (state.sessionId === null) {
     state.sessionId = await db.createSession(state.mode);
     state.sessionCount = 0;
     state.lastPointId = null;
-    $('session-count').textContent = '0';
+    renderCount();
     $('hero-label').textContent = MODES[state.mode].heroLabel;
     $('mode-select').hidden = true;
     $('btn-session').textContent = 'Terminer la session';
     $('btn-session').classList.add('stop');
     $('btn-mark').disabled = false;
+    $('btn-fullscreen').disabled = false;
     $('session-log').textContent = `${MODES[state.mode].icon} ${MODES[state.mode].label} démarrée — bonne chasse !`;
     $('bg-hint').hidden = false;
     startGeo();
@@ -207,6 +240,8 @@ async function toggleSession() {
     $('hero-label').textContent = 'mégots cette session';
     $('btn-mark').disabled = true;
     $('btn-undo').disabled = true;
+    $('btn-fullscreen').disabled = true;
+    closeFullscreen();
     $('bg-hint').hidden = true;
     stopGeo();
     state.wakeLock?.release().catch(() => {});
@@ -229,7 +264,7 @@ async function mark(type = 'megot') {
   const id = await db.addPoint(point);
   state.lastPointId = id;
   state.sessionCount++;
-  $('session-count').textContent = String(state.sessionCount);
+  renderCount();
   $('btn-undo').disabled = false;
   feedback();
 
@@ -262,7 +297,7 @@ async function undo() {
   await db.deletePoint(state.lastPointId);
   state.lastPointId = null;
   state.sessionCount = Math.max(0, state.sessionCount - 1);
-  $('session-count').textContent = String(state.sessionCount);
+  renderCount();
   $('btn-undo').disabled = true;
   $('session-log').textContent = 'Dernier point annulé.';
 }
@@ -816,6 +851,9 @@ document.addEventListener('keydown', e => {
 $('btn-session').addEventListener('click', toggleSession);
 $('btn-mark').addEventListener('click', () => mark('megot'));
 $('btn-undo').addEventListener('click', undo);
+$('btn-fullscreen').addEventListener('click', openFullscreen);
+$('fs-exit').addEventListener('click', closeFullscreen);
+$('fs-tap').addEventListener('click', () => mark('megot'));
 $('btn-ball').addEventListener('click', connectBall);
 $('btn-export-geojson').addEventListener('click', exportGeoJSON);
 $('btn-export-csv').addEventListener('click', exportCSV);

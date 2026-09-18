@@ -56,6 +56,8 @@
           <span class="mark-hint">ou bouton du dessus de la ball</span>
         </button>
 
+        <button id="btn-fullscreen" class="btn btn-ghost" disabled>🔳 Compter à l'aveugle (plein écran)</button>
+
         <button id="btn-undo" class="btn btn-ghost" disabled>↩︎ Annuler le dernier</button>
 
         <p id="session-log" class="session-log" aria-live="polite"></p>
@@ -155,6 +157,16 @@
   </nav>
 
   <div id="tooltip" class="viz-tooltip" hidden></div>
+
+  <!-- Mode plein écran : compter à l'aveugle, téléphone en main -->
+  <div id="fs-mark" class="fs-mark" hidden data-mode="detection">
+    <button id="fs-exit" class="fs-exit" aria-label="Quitter le plein écran">✕</button>
+    <div id="fs-tap" class="fs-tap" role="button" tabindex="0" aria-label="Marquer un déchet">
+      <span id="fs-icon" class="fs-icon">🚬</span>
+      <span id="fs-count" class="fs-count">0</span>
+      <span id="fs-label" class="fs-label">appuie n'importe où = +1</span>
+    </div>
+  </div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
   <!-- Plugins natifs Capacitor (inerte en PWA ; actif dans l'APK) -->

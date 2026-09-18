@@ -194,6 +194,51 @@ main { flex: 1; overflow-y: auto; }
 .flash { animation: flash 0.25s ease-out; }
 @keyframes flash { 0% { background: var(--series-1); color: #fff; } }
 
+/* ═══ Mode plein écran (compter à l'aveugle) ═══ */
+.fs-mark {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  background: var(--series-1);
+}
+.fs-mark[hidden] { display: none; }
+.fs-mark[data-mode="collecte"] { background: var(--series-2); }
+.fs-tap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #fff;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+}
+.fs-tap:active { filter: brightness(1.12); }
+.fs-tap.hit { animation: fs-hit 0.18s ease-out; }
+@keyframes fs-hit { 0% { filter: brightness(1.5); } 100% { filter: brightness(1); } }
+.fs-icon { font-size: 15vw; line-height: 1; }
+.fs-count { font-size: 40vw; font-weight: 700; line-height: 0.9; font-variant-numeric: tabular-nums; }
+.fs-label { font-size: 4.5vw; opacity: 0.85; text-align: center; }
+.fs-exit {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  right: 14px;
+  z-index: 1;
+  width: 48px;
+  height: 48px;
+  font-size: 22px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  cursor: pointer;
+}
+
 /* ═══ Carte ═══ */
 .map-toolbar {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
