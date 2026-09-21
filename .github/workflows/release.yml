@@ -1,0 +1,76 @@
+name: Release Android APK
+
+# Déclenché en poussant un tag vX.Y.Z. Build l'APK DEPUIS LE CODE DU TAG
+# (garantit tag = code = APK), puis crée/met à jour la release GitHub avec
+# l'APK attaché et le changelog lu depuis CHANGELOG.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # nécessaire pour créer la release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install JS deps
+        run: npm install --no-audit --no-fund
+
+      - name: Inject Supabase config (prod) + sync into native project
+        env:
+          URL_PROD: ${{ vars.SUPABASE_URL_PROD }}
+          KEY_PROD: ${{ vars.SUPABASE_ANON_KEY_PROD }}
+        run: |
+          printf "export const SUPABASE_URL = '%s';\nexport const SUPABASE_ANON_KEY = '%s';\nexport const ENV = 'prod';\n" \
+            "$URL_PROD" "$KEY_PROD" > app/config.js
+          npx --no-install cap sync android
+
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK to tag
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "clean-them-all-${GITHUB_REF_NAME}.apk"
+
+      - name: Extract changelog section for this tag
+        run: |
+          set -eu
+          # Récupère la section du CHANGELOG.md correspondant au tag (## [vX.Y.Z] … jusqu'au prochain ##).
+          # Fallback : message générique si la section n'existe pas.
+          if awk -v tag="${GITHUB_REF_NAME}" '
+                $0 ~ "^## \\[?"tag"\\]?" {found=1; next}
+                found && /^## / {exit}
+                found {print}
+              ' CHANGELOG.md > release_notes.md && [ -s release_notes.md ]; then
+            echo "Changelog trouvé pour ${GITHUB_REF_NAME}"
+          else
+            echo "Version ${GITHUB_REF_NAME} de Clean Them All." > release_notes.md
+          fi
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "clean-them-all-${GITHUB_REF_NAME}.apk" --clobber
+            gh release edit "${GITHUB_REF_NAME}" --notes-file release_notes.md --latest
+          else
+            gh release create "${GITHUB_REF_NAME}" "clean-them-all-${GITHUB_REF_NAME}.apk" \
+              --title "Clean Them All ${GITHUB_REF_NAME}" \
+              --notes-file release_notes.md --latest
+          fi
