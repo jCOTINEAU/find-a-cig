@@ -28,23 +28,15 @@ jobs:
       - name: Install JS deps
         run: npm install --no-audit --no-fund
 
-      - name: Inject Supabase config + sync into native project
-        # Prod si les variables prod sont définies ; sinon fallback sur dev (tant
-        # que le projet Supabase prod n'existe pas). Bascule auto une fois prod créé.
+      - name: Inject Supabase config (dev) + sync into native project
+        # Pour l'instant les releases utilisent le backend DEV (le projet prod
+        # n'existe pas encore). À rebasculer sur prod explicitement le moment venu.
         env:
-          URL_PROD: ${{ vars.SUPABASE_URL_PROD }}
-          KEY_PROD: ${{ vars.SUPABASE_ANON_KEY_PROD }}
           URL_DEV: ${{ vars.SUPABASE_URL_DEV }}
           KEY_DEV: ${{ vars.SUPABASE_ANON_KEY_DEV }}
         run: |
-          if [ -n "$URL_PROD" ] && [ -n "$KEY_PROD" ]; then
-            URL="$URL_PROD"; KEY="$KEY_PROD"; ENV="prod"
-          else
-            URL="$URL_DEV"; KEY="$KEY_DEV"; ENV="dev"
-          fi
-          echo "Config release : ENV=$ENV"
-          printf "export const SUPABASE_URL = '%s';\nexport const SUPABASE_ANON_KEY = '%s';\nexport const ENV = '%s';\n" \
-            "$URL" "$KEY" "$ENV" > app/config.js
+          printf "export const SUPABASE_URL = '%s';\nexport const SUPABASE_ANON_KEY = '%s';\nexport const ENV = 'dev';\n" \
+            "$URL_DEV" "$KEY_DEV" > app/config.js
           npx --no-install cap sync android
 
       - name: Build debug APK
